@@ -24,7 +24,7 @@ export interface IconSet {
 }
 
 // Separator characters
-export const SEP_DOT = " · ";
+export const SEP_DOT = "·";
 
 // Thinking level display text (Unicode/ASCII)
 export const THINKING_TEXT_UNICODE: Record<string, string> = {
