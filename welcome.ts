@@ -161,7 +161,7 @@ function buildRightColumn(data: WelcomeData, colWidth: number): string[] {
     ` ${bold(fgOnly("accent", "Tips"))}`,
     ` ${dim("/")} for commands`,
     ` ${dim("!")} to run bash`,
-    ` ${dim("Shift+Tab")} cycle thinking`,
+    ` ${dim("ctrl+t")} cycle thinking`,
     separator,
     ` ${bold(fgOnly("accent", "Loaded"))}`,
     ...countLines,
