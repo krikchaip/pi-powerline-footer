@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -136,13 +136,17 @@ test("matchHistoryEntries returns newest entries when the prefix is empty", () =
   assert.deepEqual(matches, ["git stash", "git status", "git fetch"]);
 });
 
-test("theme.json can override icons without touching colors", () => {
-  const themePath = join(process.cwd(), "theme.json");
-  const originalTheme = existsSync(themePath) ? readFileSync(themePath, "utf8") : null;
+test("theme.json in a custom agent dir can override icons without touching colors", () => {
+  const agentDir = mkdtempSync(join(tmpdir(), "powerline-agent-"));
+  const extensionDir = join(agentDir, "extensions", "powerline-footer");
+  const themePath = join(extensionDir, "theme.json");
+  const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
   const originalNerdFonts = process.env.POWERLINE_NERD_FONTS;
 
   try {
+    mkdirSync(extensionDir, { recursive: true });
     writeFileSync(themePath, JSON.stringify({ icons: { auto: "↯", warning: "" } }, null, 2) + "\n");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
     process.env.POWERLINE_NERD_FONTS = "0";
 
     const icons = getIcons();
@@ -150,10 +154,11 @@ test("theme.json can override icons without touching colors", () => {
     assert.equal(icons.warning, "");
     assert.equal(icons.folder, "dir");
   } finally {
-    if (originalTheme === null) {
-      if (existsSync(themePath)) unlinkSync(themePath);
+    rmSync(agentDir, { recursive: true, force: true });
+    if (originalAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
     } else {
-      writeFileSync(themePath, originalTheme);
+      process.env.PI_CODING_AGENT_DIR = originalAgentDir;
     }
 
     if (originalNerdFonts === undefined) {
