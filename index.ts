@@ -2911,14 +2911,18 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     const sessionName = currentCtx.sessionManager?.getSessionName?.()?.trim();
     if (!sessionName) return [];
 
-    const edgePadding = width > 1 ? " " : "";
-    const title = truncateToWidth(theme.fg("accent", sessionName), width - visibleWidth(edgePadding), "…");
+    const horizontalPadding = width > 2 ? " " : "";
+    const title = truncateToWidth(
+      theme.fg("accent", sessionName),
+      width - (visibleWidth(horizontalPadding) * 2),
+      "…",
+    );
     if (config.sessionTitle.alignment === "left") {
-      return [`${edgePadding}${title}`];
+      return [`${horizontalPadding}${title}${horizontalPadding}`];
     }
 
-    const padding = " ".repeat(Math.max(0, width - visibleWidth(title) - visibleWidth(edgePadding)));
-    return [`${padding}${title}${edgePadding}`];
+    const padding = " ".repeat(Math.max(0, width - visibleWidth(title) - (visibleWidth(horizontalPadding) * 2)));
+    return [`${padding}${horizontalPadding}${title}${horizontalPadding}`];
   }
 
   function renderBashTranscriptLines(width: number, theme: Theme): string[] {
