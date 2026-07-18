@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderSegment } from "../segments.ts";
-import { rainbow, rainbowWave } from "../theme.ts";
+import { maxEffortWave, rainbow, rainbowBrightBold } from "../theme.ts";
 import type { ColorScheme, SegmentContext, ThemeLike } from "../types.ts";
 
 const extensionSource = readFileSync(new URL("../index.ts", import.meta.url), "utf-8");
@@ -89,14 +89,23 @@ test("thinking segment uses static rainbow styling for high", () => {
   });
 });
 
-test("thinking segment leaves xhigh plain for its dedicated treatment", () => {
-  const rendered = renderSegment("thinking", createSegmentContext("xhigh", { thinking: "#111111" }));
-  assert.equal(rendered.visible, true);
-  assert.match(rendered.content, /think:xhigh\x1b\[0m$/);
-  assert.doesNotMatch(rendered.content, /\x1b\[38;5;/);
+test("thinking segment keeps xhigh bold and slightly brighter without animation", () => {
+  const firstFrame = renderSegment("thinking", createSegmentContext("xhigh", { thinking: "#111111" }));
+  const nextFrame = renderSegment("thinking", {
+    ...createSegmentContext("xhigh", { thinking: "#111111" }),
+    thinkingWaveFrame: 1,
+  });
+
+  assert.deepEqual(firstFrame, {
+    content: rainbowBrightBold("think:xhigh"),
+    visible: true,
+  });
+  assert.deepEqual(nextFrame, firstFrame);
+  assert.match(firstFrame.content, /^\x1b\[1m\x1b\[38;2;190;148;220mt/);
+  assert.doesNotMatch(firstFrame.content, /\x1b\[38;5;/);
 });
 
-test("thinking segment flows max with pi-dynamic-workflows rainbow frames", () => {
+test("thinking segment flows max through purple, red, and orange shades", () => {
   const firstFrame = renderSegment("thinking", createSegmentContext("max", { thinking: "#111111" }));
   const nextFrame = renderSegment("thinking", {
     ...createSegmentContext("max", { thinking: "#111111" }),
@@ -104,17 +113,17 @@ test("thinking segment flows max with pi-dynamic-workflows rainbow frames", () =
   });
 
   assert.deepEqual(firstFrame, {
-    content: rainbowWave("think:max", 0),
+    content: maxEffortWave("think:max", 0),
     visible: true,
   });
   assert.deepEqual(nextFrame, {
-    content: rainbowWave("think:max", 1),
+    content: maxEffortWave("think:max", 1),
     visible: true,
   });
   assert.notEqual(firstFrame.content, nextFrame.content);
-  assert.match(firstFrame.content, /^\x1b\[38;5;196mt\x1b\[39m/);
-  assert.match(nextFrame.content, /^\x1b\[38;5;160mt\x1b\[39m/);
-  assert.doesNotMatch(firstFrame.content, /\x1b\[22;[12]m/);
+  assert.match(firstFrame.content, /^\x1b\[1m\x1b\[38;5;57mt\x1b\[39m/);
+  assert.match(nextFrame.content, /^\x1b\[1m\x1b\[38;5;93mt\x1b\[39m/);
+  assert.match(firstFrame.content, /\x1b\[22m$/);
 });
 
 test("max thinking wave repaints only while max effort is active", () => {
