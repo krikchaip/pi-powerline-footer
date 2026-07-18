@@ -205,6 +205,7 @@ const thinkingSegment: StatusLineSegment = {
   id: "thinking",
   render(ctx) {
     const level = ctx.thinkingLevel || "off";
+    if (level === "off") return { content: "", visible: false };
 
     const levelText: Record<string, string> = {
       off: "off",
