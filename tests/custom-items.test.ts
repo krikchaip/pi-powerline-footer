@@ -62,6 +62,7 @@ test("parsePowerlineConfig supports object config with custom items", () => {
   assert.equal(config.placement, "above");
   assert.equal(config.invalidPlacement, null);
   assert.equal(config.welcome, true);
+  assert.equal(config.sessionTitle, false);
   assert.equal(config.stashSharpSShortcut, false);
   assert.deepEqual(config.queue, { compactPromptMode: "queue" });
 });
@@ -79,6 +80,16 @@ test("parsePowerlineConfig accepts self-colored custom items", () => {
     hideWhenMissing: true,
     excludeFromExtensionStatuses: true,
   }]);
+});
+
+test("parsePowerlineConfig enables the standalone session title only on request", () => {
+  const config = parsePowerlineConfig(
+    { preset: "compact", sessionTitle: true },
+    ["default", "compact"],
+  );
+
+  assert.equal(config.sessionTitle, true);
+});
 });
 
 test("parsePowerlineConfig supports disabled segments", () => {

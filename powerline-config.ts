@@ -17,6 +17,7 @@ export interface PowerlineConfig {
   placement: PowerlinePlacement;
   invalidPlacement: string | null;
   welcome: boolean;
+  sessionTitle: boolean;
   stashSharpSShortcut: boolean;
   queue: { compactPromptMode: CompactPromptMode };
   workingVibes: { color?: ColorValue | "rainbow" };
@@ -316,6 +317,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     placement: "above",
     invalidPlacement: null,
     welcome: true,
+    sessionTitle: false,
     stashSharpSShortcut: false,
     queue: { compactPromptMode: "queue" },
     workingVibes: {},
@@ -343,6 +345,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     placement,
     invalidPlacement,
     welcome: value.welcome !== false,
+    sessionTitle: value.sessionTitle === true,
     stashSharpSShortcut: value.stashSharpSShortcut === true,
     queue: normalizeQueueOptions(value.queue),
     workingVibes: isRecord(value.workingVibes) && typeof value.workingVibes.color === "string" && value.workingVibes.color.trim()
@@ -408,7 +411,7 @@ export function nextPowerlineSettingWithPreset(existingPowerlineSetting: unknown
 
 export function nextPowerlineSettingWithOptions(
   existingPowerlineSetting: unknown,
-  updates: Partial<Pick<PowerlineConfig, "welcome" | "stashSharpSShortcut" | "placement">>,
+  updates: Partial<Pick<PowerlineConfig, "welcome" | "sessionTitle" | "stashSharpSShortcut" | "placement">>,
   currentPreset: StatusLinePreset,
 ): unknown {
   if (!isRecord(existingPowerlineSetting)) {

@@ -1816,6 +1816,12 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   });
 
+  pi.on("session_info_changed", async (_event, ctx) => {
+    if (!enabled || !config.sessionTitle || !ctx.hasUI) return;
+    currentCtx = ctx;
+    tuiRef?.requestRender();
+  });
+
   pi.on("session_shutdown", async (_event, ctx) => {
     sessionGeneration++;
     dismissWelcome(ctx);
@@ -2465,6 +2471,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           ctx.ui.setWidget("powerline-status", undefined);
           ctx.ui.setWidget("powerline-queue-preview", undefined);
           ctx.ui.setWidget("powerline-last-prompt", undefined);
+          ctx.ui.setWidget("powerline-session-title", undefined);
           footerDataRef = null;
           tuiRef = null;
           currentEditor = null;
@@ -2896,6 +2903,15 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     return [` ${theme.fg(color, truncateToWidth(text, Math.max(1, width - 1), "…"))}`];
   }
 
+  function renderSessionTitleLines(width: number, theme: Theme): string[] {
+    if (!config.sessionTitle || !currentCtx) return [];
+
+    const sessionName = currentCtx.sessionManager?.getSessionName?.()?.trim();
+    if (!sessionName) return [];
+
+    return [truncateToWidth(` ${theme.fg("dim", "session:")} ${theme.fg("accent", sessionName)}`, width, "…")];
+  }
+
   function renderBashTranscriptLines(width: number, theme: Theme): string[] {
     if (!bashModeActive) return [];
 
@@ -3017,6 +3033,14 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         },
       }), { placement: "belowEditor" });
     }
+
+    ctx.ui.setWidget("powerline-session-title", (_tui: any, theme: Theme) => ({
+      dispose() {},
+      invalidate() {},
+      render(width: number): string[] {
+        return renderSessionTitleLines(width, theme);
+      },
+    }), { placement: config.placement === "below" ? "aboveEditor" : "belowEditor" });
   }
 
   function setupCustomEditor(ctx: any) {
@@ -3056,6 +3080,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     ctx.ui.setWidget("powerline-status", undefined);
     ctx.ui.setWidget("powerline-queue-preview", undefined);
     ctx.ui.setWidget("powerline-last-prompt", undefined);
+    ctx.ui.setWidget("powerline-session-title", undefined);
 
     let autocompleteFixed = !bashModeSettings.completions;
     const previousEditorFactory = typeof ctx.ui.getEditorComponent === "function" ? ctx.ui.getEditorComponent() : undefined;
