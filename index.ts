@@ -1064,6 +1064,21 @@ function buildContentFromParts(
   return " " + parts.join(` ${sepAnsi}${sep}${ansi.reset} `) + ansi.reset + " ";
 }
 
+export function buildAlignedPrimaryContent(
+  leftParts: string[],
+  rightParts: string[],
+  separatorStyle: StatusLineSeparatorStyle,
+  availableWidth: number,
+): string {
+  const leftContent = buildContentFromParts(leftParts, separatorStyle);
+  const rightContent = buildContentFromParts(rightParts, separatorStyle);
+  if (!rightContent) return leftContent;
+
+  const gapWidth = availableWidth - visibleWidth(leftContent) - visibleWidth(rightContent);
+  if (!leftContent) return gapWidth > 0 ? `${" ".repeat(gapWidth)}${rightContent}` : rightContent;
+  return gapWidth > 0 ? `${leftContent}${" ".repeat(gapWidth)}${rightContent}` : `${leftContent}${rightContent}`;
+}
+
 /**
  * Responsive segment layout - fits segments into top bar, overflows to secondary row.
  * When terminal is wide enough, secondary segments move up to top bar.
@@ -1072,19 +1087,27 @@ function buildContentFromParts(
 function computeResponsiveLayout(
   ctx: SegmentContext,
   presetDef: ReturnType<typeof getPreset>,
-  allSegmentIds: StatusLineSegmentId[],
+  mergedSegments: ReturnType<typeof mergeSegmentsWithCustomItems>,
   availableWidth: number
 ): { topContent: string; secondaryContent: string } {
   const separatorStyle = config.separator ?? presetDef.separator;
   const separatorDef = getSeparator(separatorStyle);
   const sepWidth = visibleWidth(separatorDef.left) + 2; // separator + spaces around it
 
-  // Render all segments and get their widths
-  const renderedSegments: { content: string; width: number }[] = [];
-  for (const segId of allSegmentIds) {
-    const { content, width, visible } = renderSegmentWithWidth(segId, ctx);
-    if (visible) {
-      renderedSegments.push({ content, width });
+  const primaryGroups = [
+    { ids: mergedSegments.leftSegments, placement: "left" as const },
+    { ids: mergedSegments.rightSegments, placement: "right" as const },
+    { ids: mergedSegments.secondarySegments, placement: "left" as const },
+  ];
+
+  // Render groups in priority order. Secondary segments join the left group when room remains.
+  const renderedSegments: { content: string; width: number; placement: "left" | "right" }[] = [];
+  for (const group of primaryGroups) {
+    for (const segId of group.ids) {
+      const { content, width, visible } = renderSegmentWithWidth(segId, ctx);
+      if (visible) {
+        renderedSegments.push({ content, width, placement: group.placement });
+      }
     }
   }
 
@@ -1096,7 +1119,7 @@ function computeResponsiveLayout(
   // Account for: leading space (1) + trailing space (1) = 2 chars overhead
   const baseOverhead = 2;
   let currentWidth = baseOverhead;
-  let topSegments: string[] = [];
+  let topSegments: { content: string; placement: "left" | "right" }[] = [];
   let overflowSegments: { content: string; width: number }[] = [];
   let overflow = false;
 
@@ -1104,7 +1127,7 @@ function computeResponsiveLayout(
     const neededWidth = seg.width + (topSegments.length > 0 ? sepWidth : 0);
 
     if (!overflow && currentWidth + neededWidth <= availableWidth) {
-      topSegments.push(seg.content);
+      topSegments.push({ content: seg.content, placement: seg.placement });
       currentWidth += neededWidth;
     } else {
       overflow = true;
@@ -1128,7 +1151,12 @@ function computeResponsiveLayout(
   }
 
   return {
-    topContent: buildContentFromParts(topSegments, separatorStyle),
+    topContent: buildAlignedPrimaryContent(
+      topSegments.filter((segment) => segment.placement === "left").map((segment) => segment.content),
+      topSegments.filter((segment) => segment.placement === "right").map((segment) => segment.content),
+      separatorStyle,
+      availableWidth,
+    ),
     secondaryContent: buildContentFromParts(secondarySegments, separatorStyle),
   };
 }
@@ -2813,7 +2841,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     }
 
     lastLayoutWidth = width;
-    lastLayoutResult = computeResponsiveLayout(segmentCtx, presetDef, allSegmentIds, width);
+    lastLayoutResult = computeResponsiveLayout(segmentCtx, presetDef, mergedSegments, width);
     lastLayoutTimestamp = now;
     layoutDirty = false;
     forceNextLayoutRecompute = false;
