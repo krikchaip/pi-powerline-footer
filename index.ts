@@ -1817,7 +1817,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   });
 
   pi.on("session_info_changed", async (_event, ctx) => {
-    if (!enabled || !config.sessionTitle || !ctx.hasUI) return;
+    if (!enabled || !config.sessionTitle.enabled || !ctx.hasUI) return;
     currentCtx = ctx;
     tuiRef?.requestRender();
   });
@@ -2904,12 +2904,16 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   }
 
   function renderSessionTitleLines(width: number, theme: Theme): string[] {
-    if (!config.sessionTitle || !currentCtx) return [];
+    if (!config.sessionTitle.enabled || !currentCtx) return [];
 
     const sessionName = currentCtx.sessionManager?.getSessionName?.()?.trim();
     if (!sessionName) return [];
 
-    return [truncateToWidth(` ${theme.fg("dim", "session:")} ${theme.fg("accent", sessionName)}`, width, "…")];
+    const title = truncateToWidth(theme.fg("accent", sessionName), width, "…");
+    const padding = config.sessionTitle.alignment === "right"
+      ? " ".repeat(Math.max(0, width - visibleWidth(title)))
+      : "";
+    return [`${padding}${title}`];
   }
 
   function renderBashTranscriptLines(width: number, theme: Theme): string[] {
