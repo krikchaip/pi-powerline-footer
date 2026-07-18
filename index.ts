@@ -1784,8 +1784,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     const settings = readSettings(ctx.cwd);
     resolvedShortcuts = resolveShortcutConfig(settings);
     bashModeSettings = parseBashModeSettings(settings, resolvedShortcuts);
-    showLastPrompt = settings.showLastPrompt !== false;
     config = parsePowerlineConfig(settings.powerline, PRESET_NAMES);
+    showLastPrompt = config.showLastPrompt && settings.showLastPrompt !== false;
     warnInvalidSegmentSettings(ctx);
     stashedPromptHistory = readPersistedStashHistory();
     bashModeActive = false;
