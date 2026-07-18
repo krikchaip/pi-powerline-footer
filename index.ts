@@ -386,6 +386,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function resolveThinkingLevel({
+  current,
+  sessionEvents,
+  getCurrent,
+}: {
+  current: string | null;
+  sessionEvents: unknown;
+  getCurrent?: (() => string) | null;
+}): string {
+  if (current !== null) return current;
+
+  if (Array.isArray(sessionEvents)) {
+    for (let i = sessionEvents.length - 1; i >= 0; i--) {
+      const event = sessionEvents[i];
+      if (isRecord(event) && event.type === "thinking_level_change" && typeof event.thinkingLevel === "string") {
+        return event.thinkingLevel;
+      }
+    }
+  }
+
+  return getCurrent?.() ?? "off";
+}
+
 function getStashHistoryPath(): string {
   return getAgentPath("powerline-footer", "stash-history.json");
 }
@@ -1307,7 +1330,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   };
 
   const syncMaxThinkingWave = () => {
-    const thinkingLevel = currentThinkingLevel ?? getThinkingLevelFn?.() ?? "off";
+    const thinkingLevel = resolveThinkingLevel({
+      current: currentThinkingLevel,
+      sessionEvents: currentCtx?.sessionManager?.getBranch?.(),
+      getCurrent: getThinkingLevelFn,
+    });
     if (!enabled || thinkingLevel !== "max") {
       stopMaxThinkingWave();
       return;
@@ -1817,7 +1844,9 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     bashCompletionEngine = new BashCompletionEngine();
 
     getThinkingLevelFn = () => currentCtx?.thinkingLevel ?? "off";
-    currentThinkingLevel = getThinkingLevelFn();
+    // Pi can expose the previous level here while the restored session branch
+    // already contains the new level. Keep this unset so the branch wins.
+    currentThinkingLevel = null;
     syncMaxThinkingWave();
 
     if (ctx.hasUI) {
