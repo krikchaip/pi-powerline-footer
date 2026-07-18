@@ -22,6 +22,7 @@ export interface PowerlineConfig {
   placement: PowerlinePlacement;
   invalidPlacement: string | null;
   welcome: boolean;
+  showLastPrompt: boolean;
   sessionTitle: SessionTitleConfig;
   stashSharpSShortcut: boolean;
   queue: { compactPromptMode: CompactPromptMode };
@@ -332,6 +333,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     placement: "above",
     invalidPlacement: null,
     welcome: true,
+    showLastPrompt: true,
     sessionTitle: { enabled: false, alignment: "left" },
     stashSharpSShortcut: false,
     queue: { compactPromptMode: "queue" },
@@ -360,6 +362,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     placement,
     invalidPlacement,
     welcome: value.welcome !== false,
+    showLastPrompt: value.showLastPrompt !== false,
     sessionTitle: normalizeSessionTitle(value.sessionTitle),
     stashSharpSShortcut: value.stashSharpSShortcut === true,
     queue: normalizeQueueOptions(value.queue),

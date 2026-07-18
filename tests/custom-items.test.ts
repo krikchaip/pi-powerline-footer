@@ -96,6 +96,7 @@ test("parsePowerlineConfig supports object config with custom items", () => {
   assert.equal(config.placement, "above");
   assert.equal(config.invalidPlacement, null);
   assert.equal(config.welcome, true);
+  assert.equal(config.showLastPrompt, true);
   assert.deepEqual(config.sessionTitle, { enabled: false, alignment: "left" });
   assert.equal(config.stashSharpSShortcut, false);
   assert.deepEqual(config.queue, { compactPromptMode: "queue" });
@@ -114,6 +115,15 @@ test("parsePowerlineConfig accepts self-colored custom items", () => {
     hideWhenMissing: true,
     excludeFromExtensionStatuses: true,
   }]);
+});
+
+test("parsePowerlineConfig supports disabling the last-prompt reminder", () => {
+  const config = parsePowerlineConfig(
+    { preset: "compact", showLastPrompt: false },
+    ["default", "compact"],
+  );
+
+  assert.equal(config.showLastPrompt, false);
 });
 
 test("parsePowerlineConfig supports standalone session title options", () => {

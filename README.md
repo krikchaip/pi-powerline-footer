@@ -84,7 +84,6 @@ You can also set it in the agent settings file (`~/.pi/agent/settings.json` by d
 
 ```json
 {
-  "showLastPrompt": true,
   "powerline": {
     "preset": "default",
     "placement": "below",
@@ -92,12 +91,13 @@ You can also set it in the agent settings file (`~/.pi/agent/settings.json` by d
       "enabled": true,
       "alignment": "right"
     },
+    "showLastPrompt": false,
     "welcome": true
   }
 }
 ```
 
-`"placement"` accepts `"above"` (default) or `"below"`. It moves only the primary powerline row. Set `"sessionTitle": { "enabled": true }` to show a named session in a standalone row opposite the primary row. `"sessionTitle": true` is shorthand. The feature is disabled by default and stays hidden until the session has a name. `"alignment"` accepts `"left"` or `"right"`; omitted alignment defaults to left. Set `"showLastPrompt": false` at the top level of `settings.json` to hide the last-prompt reminder. Set `"welcome": false` to skip the startup welcome while leaving powerline enabled.
+`"placement"` accepts `"above"` (default) or `"below"`. It moves only the primary powerline row. Set `"sessionTitle": { "enabled": true }` to show a named session in a standalone row opposite the primary row. `"sessionTitle": true` is shorthand. The feature is disabled by default and stays hidden until the session has a name. `"alignment"` accepts `"left"` or `"right"`; omitted alignment defaults to left. Set `"showLastPrompt": false` inside `powerline` to hide the `↳` reminder of your most recent prompt. A legacy top-level `"showLastPrompt": false` is also honored. Set `"welcome": false` to skip the startup welcome while leaving powerline enabled.
 
 | Preset | Description |
 |--------|-------------|
