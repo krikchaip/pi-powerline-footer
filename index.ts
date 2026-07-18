@@ -1079,75 +1079,59 @@ export function buildAlignedPrimaryContent(
   return gapWidth > 0 ? `${leftContent}${" ".repeat(gapWidth)}${rightContent}` : `${leftContent}${rightContent}`;
 }
 
-/**
- * Responsive segment layout - fits segments into top bar, overflows to secondary row.
- * When terminal is wide enough, secondary segments move up to top bar.
- * When narrow, top bar segments overflow down to secondary row.
- */
-function computeResponsiveLayout(
-  ctx: SegmentContext,
-  presetDef: ReturnType<typeof getPreset>,
-  mergedSegments: ReturnType<typeof mergeSegmentsWithCustomItems>,
-  availableWidth: number
-): { topContent: string; secondaryContent: string } {
-  const separatorStyle = config.separator ?? presetDef.separator;
-  const separatorDef = getSeparator(separatorStyle);
-  const sepWidth = visibleWidth(separatorDef.left) + 2; // separator + spaces around it
+type RenderedLayoutSegment = { content: string; width: number };
 
-  const primaryGroups = [
-    { ids: mergedSegments.leftSegments, placement: "left" as const },
-    { ids: mergedSegments.rightSegments, placement: "right" as const },
-    { ids: mergedSegments.secondarySegments, placement: "left" as const },
+/**
+ * Build rows from layout groups. `secondary` is an explicit row boundary: it
+ * never consumes unused space between primary `left` and `right` groups.
+ */
+export function buildResponsiveLayout(
+  groups: {
+    left: readonly RenderedLayoutSegment[];
+    right: readonly RenderedLayoutSegment[];
+    secondary: readonly RenderedLayoutSegment[];
+  },
+  presetDef: ReturnType<typeof getPreset>,
+  availableWidth: number,
+  separatorStyle: StatusLineSeparatorStyle = presetDef.separator,
+): { topContent: string; secondaryContent: string } {
+  const separatorDef = getSeparator(separatorStyle);
+  const sepWidth = visibleWidth(separatorDef.left) + 2;
+  const primarySegments = [
+    ...groups.left.map((segment) => ({ ...segment, placement: "left" as const })),
+    ...groups.right.map((segment) => ({ ...segment, placement: "right" as const })),
   ];
 
-  // Render groups in priority order. Secondary segments join the left group when room remains.
-  const renderedSegments: { content: string; width: number; placement: "left" | "right" }[] = [];
-  for (const group of primaryGroups) {
-    for (const segId of group.ids) {
-      const { content, width, visible } = renderSegmentWithWidth(segId, ctx);
-      if (visible) {
-        renderedSegments.push({ content, width, placement: group.placement });
-      }
-    }
-  }
-
-  if (renderedSegments.length === 0) {
+  if (primarySegments.length === 0 && groups.secondary.length === 0) {
     return { topContent: "", secondaryContent: "" };
   }
 
-  // Calculate how many segments fit in top bar
-  // Account for: leading space (1) + trailing space (1) = 2 chars overhead
   const baseOverhead = 2;
-  let currentWidth = baseOverhead;
-  let topSegments: { content: string; placement: "left" | "right" }[] = [];
-  let overflowSegments: { content: string; width: number }[] = [];
+  let primaryWidth = baseOverhead;
+  const topSegments: { content: string; placement: "left" | "right" }[] = [];
+  const overflowSegments: RenderedLayoutSegment[] = [];
   let overflow = false;
 
-  for (const seg of renderedSegments) {
-    const neededWidth = seg.width + (topSegments.length > 0 ? sepWidth : 0);
-
-    if (!overflow && currentWidth + neededWidth <= availableWidth) {
-      topSegments.push({ content: seg.content, placement: seg.placement });
-      currentWidth += neededWidth;
+  for (const segment of primarySegments) {
+    const neededWidth = segment.width + (topSegments.length > 0 ? sepWidth : 0);
+    if (!overflow && primaryWidth + neededWidth <= availableWidth) {
+      topSegments.push({ content: segment.content, placement: segment.placement });
+      primaryWidth += neededWidth;
     } else {
       overflow = true;
-      overflowSegments.push(seg);
+      overflowSegments.push(segment);
     }
   }
 
-  // Fit overflow segments into secondary row (same width constraint)
-  // Stop at first non-fitting segment to preserve ordering
+  // Keep layout-group order on row two: primary overflow, then secondary.
+  const secondaryCandidates = [...overflowSegments, ...groups.secondary];
   let secondaryWidth = baseOverhead;
-  let secondarySegments: string[] = [];
-
-  for (const seg of overflowSegments) {
-    const neededWidth = seg.width + (secondarySegments.length > 0 ? sepWidth : 0);
-    if (secondaryWidth + neededWidth <= availableWidth) {
-      secondarySegments.push(seg.content);
-      secondaryWidth += neededWidth;
-    } else {
-      break;
-    }
+  const secondarySegments: string[] = [];
+  for (const segment of secondaryCandidates) {
+    const neededWidth = segment.width + (secondarySegments.length > 0 ? sepWidth : 0);
+    if (secondaryWidth + neededWidth > availableWidth) continue;
+    secondarySegments.push(segment.content);
+    secondaryWidth += neededWidth;
   }
 
   return {
@@ -1159,6 +1143,24 @@ function computeResponsiveLayout(
     ),
     secondaryContent: buildContentFromParts(secondarySegments, separatorStyle),
   };
+}
+
+function computeResponsiveLayout(
+  ctx: SegmentContext,
+  presetDef: ReturnType<typeof getPreset>,
+  mergedSegments: ReturnType<typeof mergeSegmentsWithCustomItems>,
+  availableWidth: number,
+): { topContent: string; secondaryContent: string } {
+  const renderGroup = (segmentIds: readonly StatusLineSegmentId[]): RenderedLayoutSegment[] => segmentIds.flatMap((segmentId) => {
+    const rendered = renderSegmentWithWidth(segmentId, ctx);
+    return rendered.visible ? [{ content: rendered.content, width: rendered.width }] : [];
+  });
+
+  return buildResponsiveLayout({
+    left: renderGroup(mergedSegments.leftSegments),
+    right: renderGroup(mergedSegments.rightSegments),
+    secondary: renderGroup(mergedSegments.secondarySegments),
+  }, presetDef, availableWidth, config.separator ?? presetDef.separator);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2909,11 +2911,14 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     const sessionName = currentCtx.sessionManager?.getSessionName?.()?.trim();
     if (!sessionName) return [];
 
-    const title = truncateToWidth(theme.fg("accent", sessionName), width, "…");
-    const padding = config.sessionTitle.alignment === "right"
-      ? " ".repeat(Math.max(0, width - visibleWidth(title)))
-      : "";
-    return [`${padding}${title}`];
+    const edgePadding = width > 1 ? " " : "";
+    const title = truncateToWidth(theme.fg("accent", sessionName), width - visibleWidth(edgePadding), "…");
+    if (config.sessionTitle.alignment === "left") {
+      return [`${edgePadding}${title}`];
+    }
+
+    const padding = " ".repeat(Math.max(0, width - visibleWidth(title) - visibleWidth(edgePadding)));
+    return [`${padding}${title}${edgePadding}`];
   }
 
   function renderBashTranscriptLines(width: number, theme: Theme): string[] {
