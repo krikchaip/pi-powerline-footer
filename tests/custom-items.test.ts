@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAlignedPrimaryContent } from "../index.ts";
+import { buildAlignedPrimaryContent, buildResponsiveLayout } from "../index.ts";
 import { collectHiddenExtensionStatusKeys, getNotificationExtensionStatuses, normalizeExtensionStatusValue, parsePowerlineConfig, mergeSegmentOptions, mergeSegmentsWithCustomItems, nextPowerlineSettingWithOptions, nextPowerlineSettingWithPreset, normalizeCompactExtensionStatus } from "../powerline-config.ts";
 import { getSeparator } from "../separators.ts";
 import { PRESETS } from "../presets.ts";
@@ -29,6 +29,40 @@ test("right-only layout group is aligned to the terminal edge", () => {
   const plain = stripAnsi(content);
   assert.equal(plain, " ".repeat(14) + "right ");
   assert.equal(plain.length, 20);
+});
+
+test("secondary layout group always starts after right on its own row", () => {
+  const layout = buildResponsiveLayout({
+    left: [{ content: "left", width: 4 }],
+    right: [{ content: "right", width: 5 }],
+    secondary: [{ content: "secondary", width: 9 }],
+  }, PRESETS.minimal, 30);
+
+  assert.equal(stripAnsi(layout.topContent), " left" + " ".repeat(19) + "right ");
+  assert.equal(stripAnsi(layout.secondaryContent), " secondary ");
+});
+
+test("narrow rows keep configured secondary when primary overflow cannot fit", () => {
+  const layout = buildResponsiveLayout({
+    left: [{ content: "primary-too-wide", width: 17 }],
+    right: [],
+    secondary: [{ content: "secondary", width: 9 }],
+  }, PRESETS.minimal, 12);
+
+  assert.equal(layout.topContent, "");
+  assert.equal(stripAnsi(layout.secondaryContent), " secondary ");
+});
+
+test("narrow rows place right overflow before configured secondary", () => {
+  const layout = buildResponsiveLayout({
+    left: [{ content: "left", width: 4 }],
+    right: [{ content: "right", width: 5 }],
+    secondary: [{ content: "Z", width: 1 }],
+  }, PRESETS.minimal, 15);
+
+  const secondary = stripAnsi(layout.secondaryContent);
+  assert.ok(secondary.includes("right"));
+  assert.ok(secondary.indexOf("right") < secondary.indexOf("Z"));
 });
 
 test("fixed custom preset is removed in favor of powerline.layout", () => {
