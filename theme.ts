@@ -46,10 +46,13 @@ const RAINBOW_COLORS = [
   "#89d281", "#00afaf", "#178fb9", "#b281d6",
 ];
 
-// Same 256-color ring used by pi-dynamic-workflows for its flowing trigger.
-const FLOWING_RAINBOW_COLORS = [
-  196, 160, 202, 166, 208, 172, 214, 178, 220, 184, 226, 190, 118, 82, 46, 47,
-  48, 49, 50, 51, 45, 39, 33, 27, 21, 57, 93, 129, 165, 201, 198, 197,
+// Workflow-style 256-color flow, limited to purple, red, and orange shades.
+// Return through the same hues so the loop seam remains smooth.
+const MAX_EFFORT_WAVE_COLORS = [
+  57, 93, 129, 165, 201, // purple → magenta
+  200, 199, 198, 197, 196, // magenta → red
+  202, 208, 214, // red → orange
+  208, 202, 196, 197, 198, 199, 200, 201, 165, 129, 93, // orange → purple
 ];
 
 // Cache for user theme overrides
@@ -240,16 +243,39 @@ export function rainbow(text: string): string {
 }
 
 /**
- * Flow the same 256-color rainbow used by pi-dynamic-workflows' trigger.
+ * Flow a bold purple-red-orange gradient with pi-dynamic-workflows timing.
  * Reset only foreground color so surrounding styles remain intact.
  */
-export function rainbowWave(text: string, frame: number): string {
-  let result = "";
+export function maxEffortWave(text: string, frame: number): string {
+  let result = "\x1b[1m";
   for (const [index, char] of [...text].entries()) {
-    const color = FLOWING_RAINBOW_COLORS[(index + frame) % FLOWING_RAINBOW_COLORS.length];
+    const color = MAX_EFFORT_WAVE_COLORS[(index + frame) % MAX_EFFORT_WAVE_COLORS.length];
     result += `\x1b[38;5;${color}m${char}\x1b[39m`;
   }
-  return result;
+  return result + "\x1b[22m";
+}
+
+function brightenHex(hex: string, amount = 0.4): string {
+  const channels = [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16));
+  return `#${channels.map((channel) => Math.round(channel + (255 - channel) * amount).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
+ * Make high's rainbow slightly brighter and bold without animating it.
+ */
+export function rainbowBrightBold(text: string): string {
+  let colorIndex = 0;
+  let result = "\x1b[1m";
+  for (const char of text) {
+    if (char === " " || char === ":") {
+      result += char;
+      continue;
+    }
+
+    result += hexToAnsi(brightenHex(RAINBOW_COLORS[colorIndex % RAINBOW_COLORS.length], 0.15)) + char;
+    colorIndex++;
+  }
+  return result + "\x1b[0m";
 }
 
 /**

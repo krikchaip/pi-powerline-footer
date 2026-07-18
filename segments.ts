@@ -3,7 +3,7 @@ import { basename } from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { BuiltinStatusLineSegmentId, RenderedSegment, SegmentContext, SemanticColor, StatusLineSegment, StatusLineSegmentId } from "./types.ts";
 import { normalizeCompactExtensionStatus, normalizeExtensionStatusValue } from "./powerline-config.ts";
-import { fg, rainbow, rainbowWave, applyColor } from "./theme.ts";
+import { fg, maxEffortWave, rainbow, rainbowBrightBold, applyColor } from "./theme.ts";
 import { getIcons, SEP_DOT, getThinkingText } from "./icons.ts";
 import { formatUsdCost } from "./currency-rates.ts";
 import { getGitRemoteHost } from "./git-status.ts";
@@ -219,7 +219,11 @@ const thinkingSegment: StatusLineSegment = {
     const content = `think:${label}`;
 
     if (level === "max") {
-      return { content: rainbowWave(content, ctx.thinkingWaveFrame ?? 0), visible: true };
+      return { content: maxEffortWave(content, ctx.thinkingWaveFrame ?? 0), visible: true };
+    }
+
+    if (level === "xhigh") {
+      return { content: rainbowBrightBold(content), visible: true };
     }
 
     if (level === "high") {
