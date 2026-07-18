@@ -62,7 +62,7 @@ test("parsePowerlineConfig supports object config with custom items", () => {
   assert.equal(config.placement, "above");
   assert.equal(config.invalidPlacement, null);
   assert.equal(config.welcome, true);
-  assert.equal(config.sessionTitle, false);
+  assert.deepEqual(config.sessionTitle, { enabled: false, alignment: "right" });
   assert.equal(config.stashSharpSShortcut, false);
   assert.deepEqual(config.queue, { compactPromptMode: "queue" });
 });
@@ -82,14 +82,36 @@ test("parsePowerlineConfig accepts self-colored custom items", () => {
   }]);
 });
 
-test("parsePowerlineConfig enables the standalone session title only on request", () => {
+test("parsePowerlineConfig supports standalone session title options", () => {
   const config = parsePowerlineConfig(
-    { preset: "compact", sessionTitle: true },
+    { preset: "compact", sessionTitle: { enabled: true, alignment: "left" } },
     ["default", "compact"],
   );
 
-  assert.equal(config.sessionTitle, true);
+  assert.deepEqual(config.sessionTitle, { enabled: true, alignment: "left" });
 });
+
+test("parsePowerlineConfig supports boolean session title shorthand", () => {
+  const enabled = parsePowerlineConfig(
+    { preset: "compact", sessionTitle: true },
+    ["default", "compact"],
+  );
+  const disabled = parsePowerlineConfig(
+    { preset: "compact", sessionTitle: false },
+    ["default", "compact"],
+  );
+
+  assert.deepEqual(enabled.sessionTitle, { enabled: true, alignment: "right" });
+  assert.deepEqual(disabled.sessionTitle, { enabled: false, alignment: "right" });
+});
+
+test("parsePowerlineConfig defaults invalid session title options", () => {
+  const config = parsePowerlineConfig(
+    { preset: "compact", sessionTitle: { enabled: "yes", alignment: "center" } },
+    ["default", "compact"],
+  );
+
+  assert.deepEqual(config.sessionTitle, { enabled: false, alignment: "right" });
 });
 
 test("parsePowerlineConfig supports disabled segments", () => {

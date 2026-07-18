@@ -5,6 +5,11 @@ import type { ColorValue, CustomItemPosition, CustomStatusItem, PowerlinePlaceme
 
 export type CompactPromptMode = "queue" | "native";
 
+export interface SessionTitleConfig {
+  enabled: boolean;
+  alignment: "left" | "right";
+}
+
 export interface PowerlineConfig {
   preset: StatusLinePreset;
   customItems: CustomStatusItem[];
@@ -17,7 +22,7 @@ export interface PowerlineConfig {
   placement: PowerlinePlacement;
   invalidPlacement: string | null;
   welcome: boolean;
-  sessionTitle: boolean;
+  sessionTitle: SessionTitleConfig;
   stashSharpSShortcut: boolean;
   queue: { compactPromptMode: CompactPromptMode };
   workingVibes: { color?: ColorValue | "rainbow" };
@@ -66,6 +71,16 @@ function normalizeSeparator(value: unknown): StatusLineSeparatorStyle | null {
   return (SEPARATOR_STYLES as readonly string[]).includes(normalized)
     ? (normalized as StatusLineSeparatorStyle)
     : null;
+}
+
+function normalizeSessionTitle(value: unknown): SessionTitleConfig {
+  if (typeof value === "boolean") return { enabled: value, alignment: "right" };
+  if (!isRecord(value)) return { enabled: false, alignment: "right" };
+
+  return {
+    enabled: value.enabled === true,
+    alignment: value.alignment === "left" ? "left" : "right",
+  };
 }
 
 function normalizeCustomItemId(value: unknown): string | null {
@@ -317,7 +332,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     placement: "above",
     invalidPlacement: null,
     welcome: true,
-    sessionTitle: false,
+    sessionTitle: { enabled: false, alignment: "right" },
     stashSharpSShortcut: false,
     queue: { compactPromptMode: "queue" },
     workingVibes: {},
@@ -345,7 +360,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     placement,
     invalidPlacement,
     welcome: value.welcome !== false,
-    sessionTitle: value.sessionTitle === true,
+    sessionTitle: normalizeSessionTitle(value.sessionTitle),
     stashSharpSShortcut: value.stashSharpSShortcut === true,
     queue: normalizeQueueOptions(value.queue),
     workingVibes: isRecord(value.workingVibes) && typeof value.workingVibes.color === "string" && value.workingVibes.color.trim()
