@@ -1,8 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { buildAlignedPrimaryContent } from "../index.ts";
 import { collectHiddenExtensionStatusKeys, getNotificationExtensionStatuses, normalizeExtensionStatusValue, parsePowerlineConfig, mergeSegmentOptions, mergeSegmentsWithCustomItems, nextPowerlineSettingWithOptions, nextPowerlineSettingWithPreset, normalizeCompactExtensionStatus } from "../powerline-config.ts";
 import { getSeparator } from "../separators.ts";
 import { PRESETS } from "../presets.ts";
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+test("right layout group is aligned to the terminal edge", () => {
+  const content = buildAlignedPrimaryContent(["left"], ["right"], PRESETS.minimal.separator, 20);
+
+  const plain = stripAnsi(content);
+  assert.equal(plain, " left" + " ".repeat(9) + "right ");
+  assert.equal(plain.length, 20);
+});
+
+test("narrow rows omit the stretch gap between layout groups", () => {
+  const content = buildAlignedPrimaryContent(["left"], ["right"], PRESETS.minimal.separator, 13);
+
+  assert.equal(stripAnsi(content), " left  right ");
+});
+
+test("right-only layout group is aligned to the terminal edge", () => {
+  const content = buildAlignedPrimaryContent([], ["right"], PRESETS.minimal.separator, 20);
+
+  const plain = stripAnsi(content);
+  assert.equal(plain, " ".repeat(14) + "right ");
+  assert.equal(plain.length, 20);
+});
 
 test("fixed custom preset is removed in favor of powerline.layout", () => {
   assert.equal("custom" in PRESETS, false);

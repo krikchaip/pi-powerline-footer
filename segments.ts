@@ -369,6 +369,28 @@ const contextPctSegment: StatusLineSegment = {
   },
 };
 
+const contextPctPlainSegment: StatusLineSegment = {
+  id: "context_pct_plain",
+  render(ctx) {
+    if (ctx.customCompactionEnabled) return { content: "", visible: false };
+
+    const icons = getIcons();
+    const { contextTokens, contextPercent, contextWindow } = ctx;
+    const text = `${formatTokens(contextTokens)}/${formatTokens(contextWindow)} (${contextPercent.toFixed(1)}%)`;
+
+    let content: string;
+    if (contextPercent > 90) {
+      content = withIcon(icons.context, color(ctx, "contextError", text));
+    } else if (contextPercent > 70) {
+      content = withIcon(icons.context, color(ctx, "contextWarn", text));
+    } else {
+      content = withIcon(icons.context, color(ctx, "context", text));
+    }
+
+    return { content, visible: true };
+  },
+};
+
 const contextTotalSegment: StatusLineSegment = {
   id: "context_total",
   render(ctx) {
@@ -521,6 +543,7 @@ export const SEGMENTS: Record<BuiltinStatusLineSegmentId, StatusLineSegment> = {
   token_total: tokenTotalSegment,
   cost: costSegment,
   context_pct: contextPctSegment,
+  context_pct_plain: contextPctPlainSegment,
   context_total: contextTotalSegment,
   time_spent: timeSpentSegment,
   time: timeSegment,

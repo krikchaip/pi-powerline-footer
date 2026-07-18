@@ -151,6 +151,18 @@ test("context segment shows used tokens, maximum, and percentage", () => {
   assert.equal(context.visible, true);
 });
 
+test("plain context segment omits the auto-compact indicator", () => {
+  const context = renderSegment("context_pct_plain", createSegmentContext({
+    contextTokens: 4_500,
+    contextPercent: 1.7,
+    contextWindow: 272_000,
+    autoCompactEnabled: true,
+  }));
+
+  assert.equal(stripAnsi(context.content), "◫ 4.5k/272k (1.7%)");
+  assert.equal(context.visible, true);
+});
+
 test("Nerd Font context icon uses stable database glyph", () => {
   assert.equal(NERD_ICONS.context, "\uF1C0");
 });
