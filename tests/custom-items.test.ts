@@ -125,7 +125,7 @@ test("parsePowerlineConfig supports standalone session title options", () => {
   assert.deepEqual(config.sessionTitle, { enabled: true, alignment: "left" });
 });
 
-test("parsePowerlineConfig derives session title alignment from placement", () => {
+test("parsePowerlineConfig defaults session title alignment to left", () => {
   const above = parsePowerlineConfig(
     { preset: "compact", sessionTitle: true },
     ["default", "compact"],
@@ -136,7 +136,7 @@ test("parsePowerlineConfig derives session title alignment from placement", () =
   );
 
   assert.deepEqual(above.sessionTitle, { enabled: true, alignment: "left" });
-  assert.deepEqual(below.sessionTitle, { enabled: true, alignment: "right" });
+  assert.deepEqual(below.sessionTitle, { enabled: true, alignment: "left" });
 });
 
 test("parsePowerlineConfig defaults invalid session title options", () => {
