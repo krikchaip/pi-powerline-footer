@@ -188,6 +188,7 @@ export interface SegmentContext {
     contextWindow?: number;
   } | undefined;
   thinkingLevel: string;
+  thinkingWaveFrame?: number;
   sessionId: string | undefined;
   cwd?: string;
   

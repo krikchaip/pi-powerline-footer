@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderSegment } from "../segments.ts";
-import { rainbow } from "../theme.ts";
+import { rainbow, rainbowWave } from "../theme.ts";
 import type { ColorScheme, SegmentContext, ThemeLike } from "../types.ts";
+
+const extensionSource = readFileSync(new URL("../index.ts", import.meta.url), "utf-8");
 
 function hexAnsi(hex: `#${string}`): string {
   const value = hex.slice(1);
@@ -79,14 +81,46 @@ test("thinking segment hides off and colors active levels", () => {
   }
 });
 
-test("thinking segment uses rainbow styling for high through max", () => {
-  const colors: ColorScheme = { thinking: "#111111" };
+test("thinking segment uses static rainbow styling for high", () => {
+  const rendered = renderSegment("thinking", createSegmentContext("high", { thinking: "#111111" }));
+  assert.deepEqual(rendered, {
+    content: rainbow("think:high"),
+    visible: true,
+  });
+});
 
-  for (const level of ["high", "xhigh", "max"]) {
-    const rendered = renderSegment("thinking", createSegmentContext(level, colors));
-    assert.deepEqual(rendered, {
-      content: rainbow(`think:${level}`),
-      visible: true,
-    });
-  }
+test("thinking segment leaves xhigh plain for its dedicated treatment", () => {
+  const rendered = renderSegment("thinking", createSegmentContext("xhigh", { thinking: "#111111" }));
+  assert.equal(rendered.visible, true);
+  assert.match(rendered.content, /think:xhigh\x1b\[0m$/);
+  assert.doesNotMatch(rendered.content, /\x1b\[38;5;/);
+});
+
+test("thinking segment flows max with pi-dynamic-workflows rainbow frames", () => {
+  const firstFrame = renderSegment("thinking", createSegmentContext("max", { thinking: "#111111" }));
+  const nextFrame = renderSegment("thinking", {
+    ...createSegmentContext("max", { thinking: "#111111" }),
+    thinkingWaveFrame: 1,
+  });
+
+  assert.deepEqual(firstFrame, {
+    content: rainbowWave("think:max", 0),
+    visible: true,
+  });
+  assert.deepEqual(nextFrame, {
+    content: rainbowWave("think:max", 1),
+    visible: true,
+  });
+  assert.notEqual(firstFrame.content, nextFrame.content);
+  assert.match(firstFrame.content, /^\x1b\[38;5;196mt\x1b\[39m/);
+  assert.match(nextFrame.content, /^\x1b\[38;5;160mt\x1b\[39m/);
+  assert.doesNotMatch(firstFrame.content, /\x1b\[22;[12]m/);
+});
+
+test("max thinking wave repaints only while max effort is active", () => {
+  assert.match(extensionSource, /const MAX_THINKING_WAVE_FRAME_MS = 90/);
+  assert.match(extensionSource, /maxThinkingWaveTimer = setInterval\(\(\) => \{\s+resetLayoutCache\(\);\s+requestStatusRender\(0\);/);
+  assert.match(extensionSource, /thinkingLevel !== "max"[\s\S]*stopMaxThinkingWave\(\)/);
+  assert.match(extensionSource, /pi\.on\("thinking_level_select"[\s\S]*syncMaxThinkingWave\(\)/);
+  assert.match(extensionSource, /pi\.on\("session_shutdown"[\s\S]*stopMaxThinkingWave\(\)/);
 });
