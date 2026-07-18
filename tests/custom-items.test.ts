@@ -96,7 +96,7 @@ test("parsePowerlineConfig supports object config with custom items", () => {
   assert.equal(config.placement, "above");
   assert.equal(config.invalidPlacement, null);
   assert.equal(config.welcome, true);
-  assert.deepEqual(config.sessionTitle, { enabled: false, alignment: "right" });
+  assert.deepEqual(config.sessionTitle, { enabled: false, alignment: "left" });
   assert.equal(config.stashSharpSShortcut, false);
   assert.deepEqual(config.queue, { compactPromptMode: "queue" });
 });
@@ -125,18 +125,18 @@ test("parsePowerlineConfig supports standalone session title options", () => {
   assert.deepEqual(config.sessionTitle, { enabled: true, alignment: "left" });
 });
 
-test("parsePowerlineConfig supports boolean session title shorthand", () => {
-  const enabled = parsePowerlineConfig(
+test("parsePowerlineConfig derives session title alignment from placement", () => {
+  const above = parsePowerlineConfig(
     { preset: "compact", sessionTitle: true },
     ["default", "compact"],
   );
-  const disabled = parsePowerlineConfig(
-    { preset: "compact", sessionTitle: false },
+  const below = parsePowerlineConfig(
+    { preset: "compact", placement: "below", sessionTitle: { enabled: true } },
     ["default", "compact"],
   );
 
-  assert.deepEqual(enabled.sessionTitle, { enabled: true, alignment: "right" });
-  assert.deepEqual(disabled.sessionTitle, { enabled: false, alignment: "right" });
+  assert.deepEqual(above.sessionTitle, { enabled: true, alignment: "left" });
+  assert.deepEqual(below.sessionTitle, { enabled: true, alignment: "right" });
 });
 
 test("parsePowerlineConfig defaults invalid session title options", () => {
@@ -145,7 +145,7 @@ test("parsePowerlineConfig defaults invalid session title options", () => {
     ["default", "compact"],
   );
 
-  assert.deepEqual(config.sessionTitle, { enabled: false, alignment: "right" });
+  assert.deepEqual(config.sessionTitle, { enabled: false, alignment: "left" });
 });
 
 test("parsePowerlineConfig supports disabled segments", () => {

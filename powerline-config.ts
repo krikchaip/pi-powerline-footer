@@ -73,13 +73,14 @@ function normalizeSeparator(value: unknown): StatusLineSeparatorStyle | null {
     : null;
 }
 
-function normalizeSessionTitle(value: unknown): SessionTitleConfig {
-  if (typeof value === "boolean") return { enabled: value, alignment: "right" };
-  if (!isRecord(value)) return { enabled: false, alignment: "right" };
+function normalizeSessionTitle(value: unknown, placement: PowerlinePlacement): SessionTitleConfig {
+  const defaultAlignment = placement === "above" ? "left" : "right";
+  if (typeof value === "boolean") return { enabled: value, alignment: defaultAlignment };
+  if (!isRecord(value)) return { enabled: false, alignment: defaultAlignment };
 
   return {
     enabled: value.enabled === true,
-    alignment: value.alignment === "left" ? "left" : "right",
+    alignment: value.alignment === "left" || value.alignment === "right" ? value.alignment : defaultAlignment,
   };
 }
 
@@ -332,7 +333,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     placement: "above",
     invalidPlacement: null,
     welcome: true,
-    sessionTitle: { enabled: false, alignment: "right" },
+    sessionTitle: { enabled: false, alignment: "left" },
     stashSharpSShortcut: false,
     queue: { compactPromptMode: "queue" },
     workingVibes: {},
@@ -360,7 +361,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     placement,
     invalidPlacement,
     welcome: value.welcome !== false,
-    sessionTitle: normalizeSessionTitle(value.sessionTitle),
+    sessionTitle: normalizeSessionTitle(value.sessionTitle, placement),
     stashSharpSShortcut: value.stashSharpSShortcut === true,
     queue: normalizeQueueOptions(value.queue),
     workingVibes: isRecord(value.workingVibes) && typeof value.workingVibes.color === "string" && value.workingVibes.color.trim()

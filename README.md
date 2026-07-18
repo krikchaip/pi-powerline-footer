@@ -97,7 +97,7 @@ You can also set it in the agent settings file (`~/.pi/agent/settings.json` by d
 }
 ```
 
-`"placement"` accepts `"above"` (default) or `"below"`. It moves only the primary powerline row. Set `"sessionTitle": { "enabled": true }` to show a named session in a standalone row opposite the primary row. `"sessionTitle": true` is shorthand for enabled with right alignment. The feature is disabled by default and stays hidden until the session has a name. `"alignment"` accepts `"left"` or `"right"` (default). Set `"showLastPrompt": false` at the top level of `settings.json` to hide the last-prompt reminder. Set `"welcome": false` to skip the startup welcome while leaving powerline enabled.
+`"placement"` accepts `"above"` (default) or `"below"`. It moves only the primary powerline row. Set `"sessionTitle": { "enabled": true }` to show a named session in a standalone row opposite the primary row. `"sessionTitle": true` is shorthand. The feature is disabled by default and stays hidden until the session has a name. `"alignment"` accepts `"left"` or `"right"`. If omitted, alignment defaults to left with `"placement": "above"` and right with `"placement": "below"`. Set `"showLastPrompt": false` at the top level of `settings.json` to hide the last-prompt reminder. Set `"welcome": false` to skip the startup welcome while leaving powerline enabled.
 
 | Preset | Description |
 |--------|-------------|
