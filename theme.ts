@@ -46,6 +46,12 @@ const RAINBOW_COLORS = [
   "#89d281", "#00afaf", "#178fb9", "#b281d6",
 ];
 
+// Same 256-color ring used by pi-dynamic-workflows for its flowing trigger.
+const FLOWING_RAINBOW_COLORS = [
+  196, 160, 202, 166, 208, 172, 214, 178, 220, 184, 226, 190, 118, 82, 46, 47,
+  48, 49, 50, 51, 45, 39, 33, 27, 21, 57, 93, 129, 165, 201, 198, 197,
+];
+
 // Cache for user theme overrides
 let userThemeCache: ColorScheme | null = null;
 let userThemeCacheTime = 0;
@@ -231,6 +237,19 @@ export function rainbow(text: string): string {
     }
   }
   return result + "\x1b[0m";
+}
+
+/**
+ * Flow the same 256-color rainbow used by pi-dynamic-workflows' trigger.
+ * Reset only foreground color so surrounding styles remain intact.
+ */
+export function rainbowWave(text: string, frame: number): string {
+  let result = "";
+  for (const [index, char] of [...text].entries()) {
+    const color = FLOWING_RAINBOW_COLORS[(index + frame) % FLOWING_RAINBOW_COLORS.length];
+    result += `\x1b[38;5;${color}m${char}\x1b[39m`;
+  }
+  return result;
 }
 
 /**

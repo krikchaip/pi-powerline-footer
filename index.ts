@@ -85,6 +85,8 @@ let config: PowerlineConfig = {
   placement: "above",
   invalidPlacement: null,
   welcome: true,
+  showLastPrompt: true,
+  sessionTitle: { enabled: false, alignment: "left" },
   stashSharpSShortcut: false,
   queue: { compactPromptMode: "queue" },
   workingVibes: {},
@@ -181,6 +183,7 @@ const STATUS_RENDER_DEBOUNCE_MS = 33;
 const CONTEXT_STATUS_RENDER_MS = 250;
 const EDITOR_STATUS_DEFER_MS = 150;
 const QUEUE_SUMMARY_CACHE_TTL_MS = 250;
+const MAX_THINKING_WAVE_FRAME_MS = 90;
 const PROMPT_HISTORY_TRACKED = Symbol.for("powerlinePromptHistoryTracked");
 const PROMPT_HISTORY_STATE_KEY = Symbol.for("powerlinePromptHistoryState");
 
@@ -1243,6 +1246,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   let postCompactionDelivery: { generation: number; context: QueueContext } | null = null;
   let queueDeliveryTimer: ReturnType<typeof setTimeout> | null = null;
   const pendingQueueDeliveries = new Map<string, { text: string; timer: ReturnType<typeof setTimeout> }>();
+  let maxThinkingWaveTimer: ReturnType<typeof setInterval> | null = null;
 
   // Cache for the top and secondary powerline widgets.
   let lastLayoutWidth = 0;
@@ -1294,6 +1298,26 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     forceNextLayoutRecompute = true;
     statusRenderScheduler.cancel();
     statusRenderScheduler.schedule(0);
+  };
+
+  const stopMaxThinkingWave = () => {
+    if (!maxThinkingWaveTimer) return;
+    clearInterval(maxThinkingWaveTimer);
+    maxThinkingWaveTimer = null;
+  };
+
+  const syncMaxThinkingWave = () => {
+    const thinkingLevel = currentThinkingLevel ?? getThinkingLevelFn?.() ?? "off";
+    if (!enabled || thinkingLevel !== "max") {
+      stopMaxThinkingWave();
+      return;
+    }
+    if (maxThinkingWaveTimer) return;
+
+    maxThinkingWaveTimer = setInterval(() => {
+      resetLayoutCache();
+      requestStatusRender(0);
+    }, MAX_THINKING_WAVE_FRAME_MS);
   };
 
   const installFooterStatusRepaintHook = (footerData: ReadonlyFooterDataProvider) => {
@@ -1792,8 +1816,9 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     bashTranscript = new BashTranscriptStore(bashModeSettings);
     bashCompletionEngine = new BashCompletionEngine();
 
-    getThinkingLevelFn = () => ctx.thinkingLevel ?? "off";
+    getThinkingLevelFn = () => currentCtx?.thinkingLevel ?? "off";
     currentThinkingLevel = getThinkingLevelFn();
+    syncMaxThinkingWave();
 
     if (ctx.hasUI) {
       ctx.ui.setStatus("stash", undefined);
@@ -1827,6 +1852,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   pi.on("session_shutdown", async (_event, ctx) => {
     sessionGeneration++;
     dismissWelcome(ctx);
+    stopMaxThinkingWave();
     statusRenderScheduler.cancel();
     restoreFooterStatusRepaintHook?.();
     restoreFooterStatusRepaintHook = null;
@@ -1893,12 +1919,14 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   pi.on("model_select", async (_event, ctx) => {
     currentCtx = ctx;
     coreContextUsageCache.reset();
+    syncMaxThinkingWave();
     requestStatusRender();
   });
 
   pi.on("thinking_level_select", async (event, ctx) => {
     currentCtx = ctx;
     currentThinkingLevel = resolveThinkingLevelSelection(event.level, getThinkingLevelFn?.());
+    syncMaxThinkingWave();
     requestImmediateStatusRender({ deferDuringTyping: false });
   });
 
@@ -1906,6 +1934,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     currentCtx = ctx;
     currentThinkingLevel = null;
     liveAssistantUsage = null;
+    syncMaxThinkingWave();
     requestImmediateStatusRender({ deferDuringTyping: false });
   });
 
@@ -2449,6 +2478,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         enabled = !enabled;
         if (enabled) {
           setupCustomEditor(ctx);
+          syncMaxThinkingWave();
           ctx.ui.notify("Powerline enabled", "info");
         } else {
           shellSession?.dispose();
@@ -2477,6 +2507,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           footerDataRef = null;
           tuiRef = null;
           currentEditor = null;
+          stopMaxThinkingWave();
           statusRenderScheduler.cancel();
           resetLayoutCache();
           ctx.ui.notify("Powerline disabled", "info");
@@ -2776,6 +2807,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     return {
       model: ctx.model,
       thinkingLevel,
+      thinkingWaveFrame: Math.floor(Date.now() / MAX_THINKING_WAVE_FRAME_MS),
       sessionId: ctx.sessionManager?.getSessionId?.(),
       cwd: ctx.cwd,
       usageStats: { input, output, cacheRead, cacheWrite, cost, subagentCost },
