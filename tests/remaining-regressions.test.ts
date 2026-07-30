@@ -174,6 +174,12 @@ test("startup welcome predicate respects powerline.welcome false", () => {
   assert.match(source, /setupCustomEditor\(ctx\);\r?\n\s+if \(shouldShowStartupWelcome\(event\.reason, config\.welcome\)\)/);
 });
 
+test("custom editor does not add an outer gutter beyond Pi outputPad", () => {
+  assert.match(source, /const promptPrefix = `\$\{prompt\} `;\r?\n\s+const contPrefix = "  ";\r?\n\s+const contentWidth = Math\.max\(1, width - 2\);/);
+  assert.match(source, /result\.push\(bc\("─"\.repeat\(width\)\)\);/);
+  assert.doesNotMatch(source, /result\.push\(" " \+ bc\("─"\.repeat\(width - 2\)\)\);/);
+});
+
 test("stale ctx guard handles old and new Pi messages on agent_end", () => {
   assert.equal(isStaleExtensionContextError(new Error("This extension instance is stale after session replacement or reload.")), true);
   assert.equal(isStaleExtensionContextError(new Error("This extension ctx is stale after session replacement or reload.")), true);
