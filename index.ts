@@ -1087,7 +1087,7 @@ function buildContentFromParts(
   const separatorDef = getSeparator(separatorStyle);
   const sepAnsi = getFgAnsiCode("sep");
   const sep = separatorDef.left;
-  return " " + parts.join(` ${sepAnsi}${sep}${ansi.reset} `) + ansi.reset + " ";
+  return parts.join(` ${sepAnsi}${sep}${ansi.reset} `) + ansi.reset;
 }
 
 export function buildAlignedPrimaryContent(
@@ -1132,7 +1132,7 @@ export function buildResponsiveLayout(
     return { topContent: "", secondaryContent: "" };
   }
 
-  const baseOverhead = 2;
+  const baseOverhead = 0;
   let primaryWidth = baseOverhead;
   const topSegments: { content: string; placement: "left" | "right" }[] = [];
   const overflowSegments: RenderedLayoutSegment[] = [];
@@ -2972,18 +2972,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     const sessionName = currentCtx.sessionManager?.getSessionName?.()?.trim();
     if (!sessionName) return [];
 
-    const horizontalPadding = width > 2 ? " " : "";
-    const title = truncateToWidth(
-      theme.fg("accent", sessionName),
-      width - (visibleWidth(horizontalPadding) * 2),
-      "…",
-    );
-    if (config.sessionTitle.alignment === "left") {
-      return [`${horizontalPadding}${title}${horizontalPadding}`];
-    }
+    const title = truncateToWidth(theme.fg("accent", sessionName), width, "…");
+    if (config.sessionTitle.alignment === "left") return [title];
 
-    const padding = " ".repeat(Math.max(0, width - visibleWidth(title) - (visibleWidth(horizontalPadding) * 2)));
-    return [`${padding}${horizontalPadding}${title}${horizontalPadding}`];
+    return [`${" ".repeat(Math.max(0, width - visibleWidth(title)))}${title}`];
   }
 
   function renderBashTranscriptLines(width: number, theme: Theme): string[] {
@@ -3360,9 +3352,9 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           const promptGlyph = bashModeActive ? "$" : ">";
           const promptColor = ansi.getFgAnsi(200, 200, 200);
           const prompt = `${promptColor}${promptGlyph}${ansi.reset}`;
-          const promptPrefix = ` ${prompt} `;
-          const contPrefix = "   ";
-          const contentWidth = Math.max(1, width - 3);
+          const promptPrefix = `${prompt} `;
+          const contPrefix = "  ";
+          const contentWidth = Math.max(1, width - 2);
           const lines = editorPerf.options.enabled
             ? editorPerf.measure("editor.render.base", () => originalRender(contentWidth))
             : originalRender(contentWidth);
@@ -3379,7 +3371,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           }
 
           const result: string[] = [];
-          result.push(" " + bc("─".repeat(width - 2)));
+          result.push(bc("─".repeat(width)));
 
           for (let i = 1; i < bottomBorderIndex; i++) {
             const prefix = i === 1 ? promptPrefix : contPrefix;
@@ -3390,7 +3382,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
             result.push(`${promptPrefix}${" ".repeat(contentWidth)}`);
           }
 
-          result.push(" " + bc("─".repeat(width - 2)));
+          result.push(bc("─".repeat(width)));
 
           for (let i = bottomBorderIndex + 1; i < lines.length; i++) {
             result.push(lines[i] || "");

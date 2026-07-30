@@ -13,21 +13,21 @@ test("right layout group is aligned to the terminal edge", () => {
   const content = buildAlignedPrimaryContent(["left"], ["right"], PRESETS.minimal.separator, 20);
 
   const plain = stripAnsi(content);
-  assert.equal(plain, " left" + " ".repeat(9) + "right ");
+  assert.equal(plain, "left" + " ".repeat(11) + "right");
   assert.equal(plain.length, 20);
 });
 
 test("narrow rows omit the stretch gap between layout groups", () => {
   const content = buildAlignedPrimaryContent(["left"], ["right"], PRESETS.minimal.separator, 13);
 
-  assert.equal(stripAnsi(content), " left  right ");
+  assert.equal(stripAnsi(content), "left" + " ".repeat(4) + "right");
 });
 
 test("right-only layout group is aligned to the terminal edge", () => {
   const content = buildAlignedPrimaryContent([], ["right"], PRESETS.minimal.separator, 20);
 
   const plain = stripAnsi(content);
-  assert.equal(plain, " ".repeat(14) + "right ");
+  assert.equal(plain, " ".repeat(15) + "right");
   assert.equal(plain.length, 20);
 });
 
@@ -38,8 +38,8 @@ test("secondary layout group always starts after right on its own row", () => {
     secondary: [{ content: "secondary", width: 9 }],
   }, PRESETS.minimal, 30);
 
-  assert.equal(stripAnsi(layout.topContent), " left" + " ".repeat(19) + "right ");
-  assert.equal(stripAnsi(layout.secondaryContent), " secondary ");
+  assert.equal(stripAnsi(layout.topContent), "left" + " ".repeat(21) + "right");
+  assert.equal(stripAnsi(layout.secondaryContent), "secondary");
 });
 
 test("narrow rows keep configured secondary when primary overflow cannot fit", () => {
@@ -50,7 +50,7 @@ test("narrow rows keep configured secondary when primary overflow cannot fit", (
   }, PRESETS.minimal, 12);
 
   assert.equal(layout.topContent, "");
-  assert.equal(stripAnsi(layout.secondaryContent), " secondary ");
+  assert.equal(stripAnsi(layout.secondaryContent), "secondary");
 });
 
 test("narrow rows place right overflow before configured secondary", () => {
@@ -58,7 +58,7 @@ test("narrow rows place right overflow before configured secondary", () => {
     left: [{ content: "left", width: 4 }],
     right: [{ content: "right", width: 5 }],
     secondary: [{ content: "Z", width: 1 }],
-  }, PRESETS.minimal, 15);
+  }, PRESETS.minimal, 12);
 
   const secondary = stripAnsi(layout.secondaryContent);
   assert.ok(secondary.includes("right"));
