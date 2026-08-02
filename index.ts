@@ -34,6 +34,7 @@ import { SessionBranchCache, SessionTokenStatsCache } from "./token-stats.ts";
 import { ansi, getFgAnsiCode } from "./colors.ts";
 import { WelcomeComponent, WelcomeHeader, discoverLoadedCounts, getRecentSessions } from "./welcome.ts";
 import { createRenderScheduler } from "./render-scheduler.ts";
+import { refreshMaxThinkingWave } from "./thinking-wave.ts";
 import { getEditorAutocompleteProvider, passAutocompleteProviderThroughPreviousEditor } from "./editor-composition.ts";
 import { EditorPerfProfiler, readEditorPerfOptions } from "./editor-performance.ts";
 import { CoreContextUsageCache, estimateInitialContextTokens, estimateUnknownContextUsage, resolveDisplayContextUsage, type CoreContextUsage } from "./context-usage.ts";
@@ -1274,6 +1275,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   // Cache for the top and secondary powerline widgets.
   let lastLayoutWidth = 0;
   let lastLayoutResult: { topContent: string; secondaryContent: string } | null = null;
+  let lastLayoutThinkingWaveFrame: number | null = null;
   let lastLayoutTimestamp = 0;
   let layoutDirty = true;
   let forceNextLayoutRecompute = false;
@@ -1298,9 +1300,13 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     tuiRef?.requestRender();
   }, STATUS_RENDER_DEBOUNCE_MS);
 
-  const resetLayoutCache = () => {
+  const invalidateLayoutCache = () => {
     lastLayoutResult = null;
     layoutDirty = true;
+  };
+
+  const resetLayoutCache = () => {
+    invalidateLayoutCache();
     sessionBranchCache.reset();
     tokenStatsCache.reset();
     coreContextUsageCache.reset();
@@ -1342,8 +1348,9 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     if (maxThinkingWaveTimer) return;
 
     maxThinkingWaveTimer = setInterval(() => {
-      resetLayoutCache();
-      requestStatusRender(0);
+      // The cached layout contains the prior wave frame. A render replaces
+      // only its ANSI colors, without rebuilding layout or token statistics.
+      statusRenderScheduler.schedule(0);
     }, MAX_THINKING_WAVE_FRAME_MS);
   };
 
@@ -2876,11 +2883,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       const typingRecently = msSinceInput < EDITOR_STATUS_DEFER_MS;
 
       if (!forceNextLayoutRecompute && typingRecently && (layoutDirty || now - lastLayoutTimestamp >= cacheTtl)) {
-        return lastLayoutResult;
+        return refreshMaxThinkingWave(lastLayoutResult, lastLayoutThinkingWaveFrame, Math.floor(now / MAX_THINKING_WAVE_FRAME_MS));
       }
 
       if (!layoutDirty && now - lastLayoutTimestamp < cacheTtl) {
-        return lastLayoutResult;
+        return refreshMaxThinkingWave(lastLayoutResult, lastLayoutThinkingWaveFrame, Math.floor(now / MAX_THINKING_WAVE_FRAME_MS));
       }
     }
 
@@ -2904,6 +2911,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       currentCtx = null;
       lastLayoutWidth = width;
       lastLayoutResult = { topContent: "", secondaryContent: "" };
+      lastLayoutThinkingWaveFrame = null;
       lastLayoutTimestamp = now;
       layoutDirty = false;
       forceNextLayoutRecompute = false;
@@ -2912,6 +2920,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
     lastLayoutWidth = width;
     lastLayoutResult = computeResponsiveLayout(segmentCtx, presetDef, mergedSegments, width);
+    lastLayoutThinkingWaveFrame = segmentCtx.thinkingLevel === "max" ? segmentCtx.thinkingWaveFrame ?? null : null;
     lastLayoutTimestamp = now;
     layoutDirty = false;
     forceNextLayoutRecompute = false;
