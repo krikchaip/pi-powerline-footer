@@ -126,9 +126,13 @@ test("thinking segment flows max through purple, red, and orange shades", () => 
   assert.match(firstFrame.content, /\x1b\[22m$/);
 });
 
-test("max thinking wave repaints only while max effort is active", () => {
+test("max thinking wave repaints from cache only while max effort is active", () => {
   assert.match(extensionSource, /const MAX_THINKING_WAVE_FRAME_MS = 90/);
-  assert.match(extensionSource, /maxThinkingWaveTimer = setInterval\(\(\) => \{\s+resetLayoutCache\(\);\s+requestStatusRender\(0\);/);
+  assert.match(extensionSource, /import \{ refreshMaxThinkingWave \} from "\.\/thinking-wave\.ts"/);
+  assert.match(extensionSource, /let lastLayoutThinkingWaveFrame: number \| null = null/);
+  assert.match(extensionSource, /return refreshMaxThinkingWave\(lastLayoutResult, lastLayoutThinkingWaveFrame, Math\.floor\(now \/ MAX_THINKING_WAVE_FRAME_MS\)\)/);
+  assert.match(extensionSource, /maxThinkingWaveTimer = setInterval\(\(\) => \{[\s\S]*statusRenderScheduler\.schedule\(0\);/);
+  assert.doesNotMatch(extensionSource, /maxThinkingWaveTimer = setInterval\(\(\) => \{\s+resetLayoutCache\(\)/);
   assert.match(extensionSource, /thinkingLevel !== "max"[\s\S]*stopMaxThinkingWave\(\)/);
   assert.match(extensionSource, /pi\.on\("thinking_level_select"[\s\S]*syncMaxThinkingWave\(\)/);
   assert.match(extensionSource, /pi\.on\("session_shutdown"[\s\S]*stopMaxThinkingWave\(\)/);

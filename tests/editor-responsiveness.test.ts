@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRenderScheduler } from "../render-scheduler.ts";
+import { maxEffortWave } from "../theme.ts";
+import { refreshMaxThinkingWave } from "../thinking-wave.ts";
 
 test("render scheduler coalesces pending status renders", () => {
   const originalSetTimeout = globalThis.setTimeout;
@@ -133,4 +135,19 @@ test("render scheduler cancels pending status renders", () => {
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
   }
+});
+
+test("max thinking wave refreshes cached ANSI without rebuilding the layout", () => {
+  const cached = {
+    topContent: `model | ${maxEffortWave("think:max", 10)} | usage`,
+    secondaryContent: `details ${maxEffortWave("think:max", 10)}`,
+  };
+
+  const refreshed = refreshMaxThinkingWave(cached, 10, 11);
+
+  assert.notEqual(refreshed, cached);
+  assert.equal(refreshed.topContent, `model | ${maxEffortWave("think:max", 11)} | usage`);
+  assert.equal(refreshed.secondaryContent, `details ${maxEffortWave("think:max", 11)}`);
+  assert.equal(cached.topContent, `model | ${maxEffortWave("think:max", 10)} | usage`);
+  assert.equal(refreshMaxThinkingWave(cached, 10, 10), cached);
 });
