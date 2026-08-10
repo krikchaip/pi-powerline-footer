@@ -435,6 +435,10 @@ async function generateVibe(
   return parseVibeResponse(textContent?.text || "", config.fallback);
 }
 
+export function formatWorkingVibe(vibe: string): string {
+  return vibe.replace(/(?:\.{2,}|…)+\s*$/u, "").trimEnd();
+}
+
 function trackRecentVibe(vibe: string): void {
   // Don't track fallback messages
   if (vibe === `${config.fallback}...`) return;
@@ -455,7 +459,7 @@ function setStyledWorkingMessage(setWorkingMessage: (msg?: string) => void, mess
 }
 
 function updateVibeFromFile(setWorkingMessage: (msg?: string) => void): void {
-  setStyledWorkingMessage(setWorkingMessage, getNextVibeFromFile());
+  setStyledWorkingMessage(setWorkingMessage, formatWorkingVibe(getNextVibeFromFile()));
 }
 
 async function generateAndUpdate(
@@ -491,7 +495,7 @@ async function generateAndUpdate(
     // Only update if still streaming and THIS generation wasn't aborted
     if (isStreaming && !controller.signal.aborted) {
       trackRecentVibe(vibe);
-      setStyledWorkingMessage(setWorkingMessage, vibe);
+      setStyledWorkingMessage(setWorkingMessage, formatWorkingVibe(vibe));
     }
   } catch (error) {
     // AbortError is expected on timeout/cancel - don't log as error
@@ -549,7 +553,7 @@ export function onVibeBeforeAgentStart(
   
   // Queue themed placeholder BEFORE agent_start creates the loader
   // This sets pendingWorkingMessage which is applied when loader is created
-  setStyledWorkingMessage(setWorkingMessage, `Channeling ${config.theme}...`);
+  setStyledWorkingMessage(setWorkingMessage, `Channeling ${config.theme}`);
   
   // Mark vibe generation time for rate limiting
   lastVibeTime = Date.now();

@@ -272,7 +272,7 @@ const queueSegment: StatusLineSegment = {
     }
 
     if (parts.length === 0) return { content: "", visible: false };
-    return { content: color(ctx, "queue", parts.join(SEP_DOT)), visible: true };
+    return { content: color(ctx, "queue", parts.join(` ${SEP_DOT} `)), visible: true };
   },
 };
 
@@ -385,12 +385,16 @@ const contextPctPlainSegment: StatusLineSegment = {
 
     const icons = getIcons();
     const { contextTokens, contextPercent, contextWindow } = ctx;
-    const text = `${formatTokens(contextTokens)}/${formatTokens(contextWindow)} (${contextPercent.toFixed(1)}%)`;
+    const hasKnownUsage = contextTokens !== null && contextPercent !== null;
+    const approximate = ctx.contextApproximate ? "~" : "";
+    const text = hasKnownUsage
+      ? `${approximate}${formatTokens(contextTokens)}/${formatTokens(contextWindow)} (${contextPercent.toFixed(1)}%)`
+      : `?/${formatTokens(contextWindow)}`;
 
     let content: string;
-    if (contextPercent > 90) {
+    if (hasKnownUsage && contextPercent > 90) {
       content = withIcon(icons.context, color(ctx, "contextError", text));
-    } else if (contextPercent > 70) {
+    } else if (hasKnownUsage && contextPercent > 70) {
       content = withIcon(icons.context, color(ctx, "contextWarn", text));
     } else {
       content = withIcon(icons.context, color(ctx, "context", text));

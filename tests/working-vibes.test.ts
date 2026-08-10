@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { initVibeManager, onVibeAgentEnd, onVibeAgentStart, onVibeBeforeAgentStart, parseVibeGenerateArgs, setVibeMode, setVibeTheme, setVibeWorkingMessageColor, setVibeWorkingMessageTheme } from "../working-vibes.ts";
+import { formatWorkingVibe, initVibeManager, onVibeAgentEnd, onVibeAgentStart, onVibeBeforeAgentStart, parseVibeGenerateArgs, setVibeMode, setVibeTheme, setVibeWorkingMessageColor, setVibeWorkingMessageTheme } from "../working-vibes.ts";
 import { rainbow } from "../theme.ts";
 
 const FAUX_PROVIDER_PATH = new URL("../node_modules/@earendil-works/pi-ai/dist/providers/faux.js", import.meta.url).href;
@@ -63,6 +63,11 @@ test("parseVibeGenerateArgs supports multi-word themes", () => {
   assert.equal(parseVibeGenerateArgs([]), null);
 });
 
+test("formatWorkingVibe removes ugly trailing ellipses", () => {
+  assert.equal(formatWorkingVibe("Engaging warp drive..."), "Engaging warp drive");
+  assert.equal(formatWorkingVibe("Engaging warp drive…"), "Engaging warp drive");
+  assert.equal(formatWorkingVibe("Deploying."), "Deploying.");
+});
 
 test("working-vibe color styles semantic, hex, and rainbow messages", () => {
   const home = mkdtempSync(join(tmpdir(), "powerline-vibes-home-"));
@@ -83,22 +88,22 @@ test("working-vibe color styles semantic, hex, and rainbow messages", () => {
     const semantic: Array<string | undefined> = [];
     setVibeWorkingMessageColor("warning");
     onVibeBeforeAgentStart("fix a bug", (message) => semantic.push(message));
-    assert.equal(semantic[0], "<warning>Channeling star trek...</warning>");
+    assert.equal(semantic[0], "<warning>Channeling star trek</warning>");
 
     const hex: Array<string | undefined> = [];
     setVibeWorkingMessageColor("#89d281");
     onVibeBeforeAgentStart("fix a bug", (message) => hex.push(message));
-    assert.equal(hex[0], "\x1b[38;2;137;210;129mChanneling star trek...\x1b[0m");
+    assert.equal(hex[0], "\x1b[38;2;137;210;129mChanneling star trek\x1b[0m");
 
     const rainbowUpdates: Array<string | undefined> = [];
     setVibeWorkingMessageColor("rainbow");
     onVibeBeforeAgentStart("fix a bug", (message) => rainbowUpdates.push(message));
-    assert.equal(rainbowUpdates[0], rainbow("Channeling star trek..."));
+    assert.equal(rainbowUpdates[0], rainbow("Channeling star trek"));
 
     const defaultUpdates: Array<string | undefined> = [];
     setVibeWorkingMessageColor(undefined);
     onVibeBeforeAgentStart("fix a bug", (message) => defaultUpdates.push(message));
-    assert.equal(defaultUpdates[0], "Channeling star trek...");
+    assert.equal(defaultUpdates[0], "Channeling star trek");
     onVibeAgentEnd(() => {});
   } finally {
     if (previousHome === undefined) {
@@ -288,12 +293,12 @@ test("on-demand vibe generation includes a system prompt for providers that requ
     });
 
     const start = Date.now();
-    while (!updates.includes("Engaging warp drive...") && Date.now() - start < 1000) {
+    while (!updates.includes("Engaging warp drive") && Date.now() - start < 1000) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
-    assert.equal(updates[0], "Channeling star trek...");
-    assert.ok(updates.includes("Engaging warp drive..."));
+    assert.equal(updates[0], "Channeling star trek");
+    assert.ok(updates.includes("Engaging warp drive"));
   } finally {
     if (previousHome === undefined) {
       delete process.env.HOME;

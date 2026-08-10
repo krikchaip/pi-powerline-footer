@@ -3,6 +3,7 @@ import { maxEffortWave } from "./theme.ts";
 export interface ThinkingWaveLayout {
   topContent: string;
   secondaryContent: string;
+  secondaryLines?: string[];
 }
 
 /**
@@ -11,11 +12,11 @@ export interface ThinkingWaveLayout {
  * The layout stays cached, so this is safe to call on every animation frame,
  * including while the editor is handling input.
  */
-export function refreshMaxThinkingWave(
-  layout: ThinkingWaveLayout,
+export function refreshMaxThinkingWave<T extends ThinkingWaveLayout>(
+  layout: T,
   cachedFrame: number | null,
   currentFrame: number,
-): ThinkingWaveLayout {
+): T {
   if (cachedFrame === null || cachedFrame === currentFrame) return layout;
 
   const cachedWave = maxEffortWave("think:max", cachedFrame);
@@ -23,7 +24,11 @@ export function refreshMaxThinkingWave(
   const replaceWave = (content: string) => content.replaceAll(cachedWave, currentWave);
 
   return {
+    ...layout,
     topContent: replaceWave(layout.topContent),
     secondaryContent: replaceWave(layout.secondaryContent),
+    ...(layout.secondaryLines
+      ? { secondaryLines: layout.secondaryLines.map(replaceWave) }
+      : {}),
   };
 }

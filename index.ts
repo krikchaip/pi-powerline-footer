@@ -1,11 +1,12 @@
 import {
   copyToClipboard,
   type ExtensionAPI,
+  InteractiveMode,
   type ReadonlyFooterDataProvider,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { CURSOR_MARKER, isKeyRelease, type AutocompleteProvider, type SelectItem, SelectList, truncateToWidth, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, isKeyRelease, type AutocompleteProvider, type SelectItem, SelectList, truncateToWidth, TUI_KEYBINDINGS, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 
@@ -1106,7 +1107,26 @@ export function buildAlignedPrimaryContent(
   return gapWidth > 0 ? `${leftContent}${" ".repeat(gapWidth)}${rightContent}` : `${leftContent}${rightContent}`;
 }
 
+export function buildSessionTitleLines(
+  title: string,
+  availableWidth: number,
+  alignment: "left" | "right",
+): string[] {
+  if (!title || availableWidth <= 0) return [];
+
+  const lines = wrapTextWithAnsi(title, availableWidth);
+  if (alignment === "left") return lines;
+
+  return lines.map((line) => `${" ".repeat(Math.max(0, availableWidth - visibleWidth(line)))}${line}`);
+}
+
 type RenderedLayoutSegment = { content: string; width: number };
+type ResponsiveLayout = {
+  topContent: string;
+  /** First secondary row, kept for callers that consume the original API. */
+  secondaryContent: string;
+  secondaryLines: string[];
+};
 
 /**
  * Build rows from layout groups. `secondary` is an explicit row boundary: it
@@ -1121,7 +1141,7 @@ export function buildResponsiveLayout(
   presetDef: ReturnType<typeof getPreset>,
   availableWidth: number,
   separatorStyle: StatusLineSeparatorStyle = presetDef.separator,
-): { topContent: string; secondaryContent: string } {
+): ResponsiveLayout {
   const separatorDef = getSeparator(separatorStyle);
   const sepWidth = visibleWidth(separatorDef.left) + 2;
   const primarySegments = [
@@ -1130,11 +1150,10 @@ export function buildResponsiveLayout(
   ];
 
   if (primarySegments.length === 0 && groups.secondary.length === 0) {
-    return { topContent: "", secondaryContent: "" };
+    return { topContent: "", secondaryContent: "", secondaryLines: [] };
   }
 
-  const baseOverhead = 0;
-  let primaryWidth = baseOverhead;
+  let primaryWidth = 0;
   const topSegments: { content: string; placement: "left" | "right" }[] = [];
   const overflowSegments: RenderedLayoutSegment[] = [];
   let overflow = false;
@@ -1150,17 +1169,38 @@ export function buildResponsiveLayout(
     }
   }
 
-  // Keep layout-group order on row two: primary overflow, then secondary.
-  const secondaryCandidates = [...overflowSegments, ...groups.secondary];
-  let secondaryWidth = baseOverhead;
-  const secondarySegments: string[] = [];
-  for (const segment of secondaryCandidates) {
-    const neededWidth = segment.width + (secondarySegments.length > 0 ? sepWidth : 0);
-    if (secondaryWidth + neededWidth > availableWidth) continue;
-    secondarySegments.push(segment.content);
-    secondaryWidth += neededWidth;
-  }
+  // Keep layout-group order after the explicit row boundary. Start a new row
+  // instead of dropping content. Wrap one indivisible oversized segment with
+  // ANSI styles intact, without adding a right-edge ellipsis.
+  const secondaryRows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentRowWidth = 0;
+  const flushSecondaryRow = () => {
+    if (currentRow.length === 0) return;
+    secondaryRows.push(currentRow);
+    currentRow = [];
+    currentRowWidth = 0;
+  };
 
+  for (const segment of [...overflowSegments, ...groups.secondary]) {
+    if (segment.width > availableWidth) {
+      flushSecondaryRow();
+      for (const line of wrapTextWithAnsi(segment.content, Math.max(1, availableWidth))) {
+        if (visibleWidth(line) > 0) secondaryRows.push([line]);
+      }
+      continue;
+    }
+
+    const neededWidth = segment.width + (currentRow.length > 0 ? sepWidth : 0);
+    if (currentRow.length > 0 && currentRowWidth + neededWidth > availableWidth) {
+      flushSecondaryRow();
+    }
+    currentRow.push(segment.content);
+    currentRowWidth += segment.width + (currentRow.length > 1 ? sepWidth : 0);
+  }
+  flushSecondaryRow();
+
+  const secondaryLines = secondaryRows.map((row) => buildContentFromParts(row, separatorStyle));
   return {
     topContent: buildAlignedPrimaryContent(
       topSegments.filter((segment) => segment.placement === "left").map((segment) => segment.content),
@@ -1168,7 +1208,8 @@ export function buildResponsiveLayout(
       separatorStyle,
       availableWidth,
     ),
-    secondaryContent: buildContentFromParts(secondarySegments, separatorStyle),
+    secondaryContent: secondaryLines[0] ?? "",
+    secondaryLines,
   };
 }
 
@@ -1177,7 +1218,7 @@ function computeResponsiveLayout(
   presetDef: ReturnType<typeof getPreset>,
   mergedSegments: ReturnType<typeof mergeSegmentsWithCustomItems>,
   availableWidth: number,
-): { topContent: string; secondaryContent: string } {
+): ResponsiveLayout {
   const renderGroup = (segmentIds: readonly StatusLineSegmentId[]): RenderedLayoutSegment[] => segmentIds.flatMap((segmentId) => {
     const rendered = renderSegmentWithWidth(segmentId, ctx);
     return rendered.visible ? [{ content: rendered.content, width: rendered.width }] : [];
@@ -1193,6 +1234,53 @@ function computeResponsiveLayout(
 // ═══════════════════════════════════════════════════════════════════════════
 // Extension
 // ═══════════════════════════════════════════════════════════════════════════
+
+const WIDGET_SPACING_PATCH = Symbol.for("pi-powerline-footer.widget-spacing-patch");
+const SESSION_TITLE_WIDGET_KEY = "powerline-session-title";
+
+type RenderWidgetContainer = (
+  container: unknown,
+  widgets: Map<string, unknown>,
+  spacerWhenEmpty: boolean,
+  leadingSpacer: boolean,
+) => void;
+
+type WidgetSpacingPatchState = {
+  originalRenderWidgetContainer: RenderWidgetContainer;
+};
+
+type WidgetSpacingPrototype = {
+  renderWidgetContainer?: RenderWidgetContainer;
+} & Record<symbol, WidgetSpacingPatchState | undefined>;
+
+/** Remove Pi's generic leading spacer only when our session title is above the editor. */
+export function installPowerlineWidgetSpacingPatch(
+  prototype: object = InteractiveMode.prototype,
+): void {
+  const patchable = prototype as WidgetSpacingPrototype;
+  if (patchable[WIDGET_SPACING_PATCH]) return;
+
+  const originalRenderWidgetContainer = patchable.renderWidgetContainer;
+  if (typeof originalRenderWidgetContainer !== "function") return;
+
+  const state: WidgetSpacingPatchState = { originalRenderWidgetContainer };
+  patchable[WIDGET_SPACING_PATCH] = state;
+  patchable.renderWidgetContainer = function patchedRenderWidgetContainer(
+    this: unknown,
+    container: unknown,
+    widgets: Map<string, unknown>,
+    spacerWhenEmpty: boolean,
+    leadingSpacer: boolean,
+  ): void {
+    state.originalRenderWidgetContainer.call(
+      this,
+      container,
+      widgets,
+      spacerWhenEmpty,
+      leadingSpacer && !widgets.has(SESSION_TITLE_WIDGET_KEY),
+    );
+  };
+}
 
 function warnInvalidSegmentSettings(ctx: any): void {
   if (config.invalidDisabledSegments.length > 0) {
@@ -1220,6 +1308,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   const editorPerf = new EditorPerfProfiler(readEditorPerfOptions());
   const startupSettings = readSettings();
   config = parsePowerlineConfig(startupSettings.powerline, PRESET_NAMES);
+  installPowerlineWidgetSpacingPatch();
   let resolvedShortcuts = resolveShortcutConfig(startupSettings);
   let bashModeSettings = parseBashModeSettings(startupSettings, resolvedShortcuts);
 
@@ -1274,7 +1363,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   // Cache for the top and secondary powerline widgets.
   let lastLayoutWidth = 0;
-  let lastLayoutResult: { topContent: string; secondaryContent: string } | null = null;
+  let lastLayoutResult: ResponsiveLayout | null = null;
   let lastLayoutThinkingWaveFrame: number | null = null;
   let lastLayoutTimestamp = 0;
   let layoutDirty = true;
@@ -2874,7 +2963,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
    * Get cached responsive layout or compute fresh one.
    * The segment context scans session state, so keep it stable across render bursts.
    */
-  function getResponsiveLayout(width: number, theme: Theme): { topContent: string; secondaryContent: string } {
+  function getResponsiveLayout(width: number, theme: Theme): ResponsiveLayout {
     const now = Date.now();
     const cacheTtl = isStreaming ? STREAMING_LAYOUT_CACHE_TTL_MS : LAYOUT_CACHE_TTL_MS;
 
@@ -2910,7 +2999,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       if (!isStaleExtensionContextError(error)) throw error;
       currentCtx = null;
       lastLayoutWidth = width;
-      lastLayoutResult = { topContent: "", secondaryContent: "" };
+      lastLayoutResult = { topContent: "", secondaryContent: "", secondaryLines: [] };
       lastLayoutThinkingWaveFrame = null;
       lastLayoutTimestamp = now;
       layoutDirty = false;
@@ -2957,7 +3046,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     if (!currentCtx) return [];
 
     const layout = getResponsiveLayout(width, theme);
-    return layout.secondaryContent ? [layout.secondaryContent] : [];
+    return layout.secondaryLines;
   }
 
   function renderPowerlineQueuePreviewLines(width: number, theme: Theme): string[] {
@@ -2981,10 +3070,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     const sessionName = currentCtx.sessionManager?.getSessionName?.()?.trim();
     if (!sessionName) return [];
 
-    const title = truncateToWidth(theme.fg("accent", sessionName), width, "…");
-    if (config.sessionTitle.alignment === "left") return [title];
-
-    return [`${" ".repeat(Math.max(0, width - visibleWidth(title)))}${title}`];
+    return buildSessionTitleLines(
+      theme.fg("accent", sessionName),
+      width,
+      config.sessionTitle.alignment,
+    );
   }
 
   function renderBashTranscriptLines(width: number, theme: Theme): string[] {
