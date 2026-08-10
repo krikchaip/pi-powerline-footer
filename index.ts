@@ -1120,6 +1120,16 @@ export function buildSessionTitleLines(
   return lines.map((line) => `${" ".repeat(Math.max(0, availableWidth - visibleWidth(line)))}${line}`);
 }
 
+export function buildPowerlineFooterLines(
+  placement: "above" | "below",
+  primaryLines: string[],
+  secondaryLines: string[],
+): string[] {
+  return placement === "below"
+    ? [...primaryLines, ...secondaryLines]
+    : secondaryLines;
+}
+
 type RenderedLayoutSegment = { content: string; width: number };
 type ResponsiveLayout = {
   topContent: string;
@@ -3151,25 +3161,21 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       },
     }), { placement: "aboveEditor" });
 
-    ctx.ui.setWidget("powerline-top", (_tui: any, theme: Theme) => ({
-      dispose() {},
-      invalidate() {
-        resetLayoutCache();
-      },
-      render(width: number): string[] {
-        return measureWidget("primary", () => renderPowerlinePrimaryLines(width, theme));
-      },
-    }), { placement: config.placement === "below" ? "belowEditor" : "aboveEditor" });
-
-    ctx.ui.setWidget("powerline-secondary", (_tui: any, theme: Theme) => ({
-      dispose() {},
-      invalidate() {
-        resetLayoutCache();
-      },
-      render(width: number): string[] {
-        return measureWidget("secondary", () => renderPowerlineSecondaryLines(width, theme));
-      },
-    }), { placement: "belowEditor" });
+    ctx.ui.setWidget(
+      "powerline-top",
+      config.placement === "above"
+        ? (_tui: any, theme: Theme) => ({
+            dispose() {},
+            invalidate() {
+              resetLayoutCache();
+            },
+            render(width: number): string[] {
+              return measureWidget("primary", () => renderPowerlinePrimaryLines(width, theme));
+            },
+          })
+        : undefined,
+      { placement: "aboveEditor" },
+    );
 
     if (editorPerf.options.bashWidgets) {
       ctx.ui.setWidget("powerline-bash-transcript", (_tui: any, theme: Theme) => ({
@@ -3500,7 +3506,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
     ctx.ui.setEditorComponent(editorFactory);
 
-    ctx.ui.setFooter((tui: any, _theme: Theme, footerData: ReadonlyFooterDataProvider) => {
+    ctx.ui.setFooter((tui: any, theme: Theme, footerData: ReadonlyFooterDataProvider) => {
       footerDataRef = footerData;
       // Pi sets the provider cwd from sessionManager before binding session_start.
       // Do not treat its branch as authoritative if the extension cwd differs.
@@ -3526,8 +3532,12 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         invalidate() {
           requestStatusRender();
         },
-        render(): string[] {
-          return [""];
+        render(width: number): string[] {
+          return buildPowerlineFooterLines(
+            config.placement,
+            renderPowerlinePrimaryLines(width, theme),
+            renderPowerlineSecondaryLines(width, theme),
+          );
         },
       };
     });
