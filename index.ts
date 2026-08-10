@@ -3385,6 +3385,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         },
       });
 
+      // Reserve one menu row for the closing autocomplete border.
+      const setAutocompleteMaxVisible = editor.setAutocompleteMaxVisible.bind(editor);
+      editor.setAutocompleteMaxVisible = (maxVisible: number) =>
+        setAutocompleteMaxVisible(Math.max(3, maxVisible - 1));
+
       let installingPowerlineAutocompleteProvider = false;
       const originalSetAutocompleteProvider = editor.setAutocompleteProvider.bind(editor);
       editor.setAutocompleteProvider = (provider: AutocompleteProvider) => {
@@ -3566,6 +3571,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
               break;
             }
           }
+          const hasAutocompleteLines = editor.isShowingAutocomplete() && lines.length > bottomBorderIndex + 1;
 
           const result: string[] = [];
           result.push(bc("─".repeat(width)));
@@ -3583,6 +3589,9 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
           for (let i = bottomBorderIndex + 1; i < lines.length; i++) {
             result.push(lines[i] || "");
+          }
+          if (hasAutocompleteLines) {
+            result.push(bc("─".repeat(width)));
           }
 
           return result;
