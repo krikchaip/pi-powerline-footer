@@ -1,7 +1,7 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { normalizeCostCurrency } from "./currency-rates.ts";
 import { BUILTIN_STATUS_LINE_SEGMENT_IDS } from "./types.ts";
-import type { ColorValue, CustomItemPosition, CustomStatusItem, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions, StatusLineSeparatorStyle } from "./types.ts";
+import type { ColorValue, CustomItemPosition, CustomStatusItem, ModelSegmentColor, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions, StatusLineSeparatorStyle } from "./types.ts";
 
 export type CompactPromptMode = "queue" | "native";
 
@@ -237,13 +237,27 @@ function normalizeQueueOptions(raw: unknown): PowerlineConfig["queue"] {
   };
 }
 
+const MODEL_COLORS = ["accent", "borderAccent", "text", "muted", "warning"] as const satisfies readonly Exclude<ModelSegmentColor, `#${string}`>[];
+
+function normalizeModelColor(value: unknown): ModelSegmentColor | undefined {
+  if (typeof value !== "string") return undefined;
+  const color = value.trim();
+  if ((MODEL_COLORS as readonly string[]).includes(color) || /^#[0-9a-fA-F]{6}$/.test(color)) {
+    return color as ModelSegmentColor;
+  }
+  return undefined;
+}
+
 function normalizeSegmentOptions(raw: Record<string, unknown>): StatusLineSegmentOptions {
   const options: StatusLineSegmentOptions = {};
 
   if (isRecord(raw.model)) {
+    const modelColor = normalizeModelColor(raw.model.color);
     options.model = {
       ...(typeof raw.model.showThinkingLevel === "boolean" ? { showThinkingLevel: raw.model.showThinkingLevel } : {}),
       ...(raw.model.display === "name" || raw.model.display === "qualified" ? { display: raw.model.display } : {}),
+      ...(modelColor ? { color: modelColor } : {}),
+      ...(typeof raw.model.bold === "boolean" ? { bold: raw.model.bold } : {}),
     };
   }
 

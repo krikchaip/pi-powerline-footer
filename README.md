@@ -213,13 +213,13 @@ For a compact current footer setup:
   "powerline": {
     "preset": "default",
     "path": { "mode": "basename" },
-    "model": { "display": "name" },
+    "model": { "display": "name", "color": "accent", "bold": true },
     "cost": { "subscriptionDisplay": "subscription", "currency": "USD" }
   }
 }
 ```
 
-Use `"model": { "display": "qualified" }` when two providers expose models with the same display name.
+Use `"model": { "display": "qualified" }` when two providers expose models with the same display name. `powerline.model.color` accepts `accent`, `borderAccent`, `text`, `muted`, `warning`, or a six-digit hex color such as `#12ab34`. When `color` is absent, Powerline uses the normal model color from the selected preset or `theme.json`. `powerline.model.bold` accepts `true` or `false`; it defaults to `false`. A configured `color` overrides the model color from the selected preset and `theme.json`.
 
 `cost.currency` accepts `USD`, `CNY`, `EUR`, `GBP`, `JPY`, `CAD`, `AUD`, `CHF`, `INR`, or `KRW`. Pi reports costs in USD; non-USD display uses a keyless USD FX rate fetched in the background and cached for 24 hours under the Pi agent directory. If no cached rate is available yet, the cost segment renders `-- CODE` until a later footer refresh can use the fetched rate.
 

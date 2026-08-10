@@ -71,7 +71,11 @@ const modelSegment: StatusLineSegment = {
       }
     }
 
-    return { content: color(ctx, "model", content), visible: true };
+    const styledContent = opts.bold ? `\x1b[1m${content}\x1b[22m` : content;
+    return {
+      content: opts.color ? applyColor(ctx.theme, opts.color, styledContent) : color(ctx, "model", styledContent),
+      visible: true,
+    };
   },
 };
 

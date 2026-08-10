@@ -449,7 +449,7 @@ test("parsePowerlineConfig extracts supported segment options", () => {
   const config = parsePowerlineConfig(
     {
       preset: "default",
-      model: { showThinkingLevel: true, display: "qualified" },
+      model: { showThinkingLevel: true, display: "qualified", color: "#12ab34", bold: true },
       path: { mode: "full", maxLength: 120 },
       git: { showBranch: false, showStaged: false, showUnstaged: true, showUntracked: false, polling: "branch", hostIcon: true },
       time: { format: "12h", showSeconds: true },
@@ -464,7 +464,7 @@ test("parsePowerlineConfig extracts supported segment options", () => {
   );
 
   assert.deepEqual(config.segmentOptions, {
-    model: { showThinkingLevel: true, display: "qualified" },
+    model: { showThinkingLevel: true, display: "qualified", color: "#12ab34", bold: true },
     path: { mode: "full", maxLength: 120 },
     git: { showBranch: false, showStaged: false, showUnstaged: true, showUntracked: false, polling: "branch", hostIcon: true },
     time: { format: "12h", showSeconds: true },
@@ -480,6 +480,20 @@ test("parsePowerlineConfig accepts working-vibe theme colors and hex colors", ()
 
   assert.deepEqual(semantic.workingVibes, { color: "warning" });
   assert.deepEqual(hex.workingVibes, { color: "#89d281" });
+});
+
+test("parsePowerlineConfig accepts only documented model colors", () => {
+  const supported = parsePowerlineConfig(
+    { model: { color: "borderAccent", bold: false } },
+    ["default", "compact"],
+  );
+  const invalid = parsePowerlineConfig(
+    { model: { color: "success", bold: "yes" } },
+    ["default", "compact"],
+  );
+
+  assert.deepEqual(supported.segmentOptions, { model: { color: "borderAccent", bold: false } });
+  assert.deepEqual(invalid.segmentOptions, { model: {} });
 });
 
 test("mergeSegmentOptions lets user config override preset segment defaults", () => {
