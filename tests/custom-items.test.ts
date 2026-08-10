@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAlignedPrimaryContent, buildResponsiveLayout, buildSessionTitleLines, installPowerlineWidgetSpacingPatch } from "../index.ts";
+import { buildAlignedPrimaryContent, buildPowerlineFooterLines, buildResponsiveLayout, buildSessionTitleLines, installPowerlineWidgetSpacingPatch } from "../index.ts";
 import { collectHiddenExtensionStatusKeys, getNotificationExtensionStatuses, normalizeExtensionStatusValue, parsePowerlineConfig, mergeSegmentOptions, mergeSegmentsWithCustomItems, nextPowerlineSettingWithOptions, nextPowerlineSettingWithPreset, normalizeCompactExtensionStatus } from "../powerline-config.ts";
 import { getSeparator } from "../separators.ts";
 import { PRESETS } from "../presets.ts";
@@ -98,6 +98,17 @@ test("right-aligned session titles wrap without an edge ellipsis and use the ful
   assert.ok(lines.every((line) => !line.includes("…") && !line.includes("...")));
   assert.ok(lines.every((line) => stripAnsi(line).length <= 24));
   assert.equal(stripAnsi(buildSessionTitleLines("session", 10, "right")[0]), "   session");
+});
+
+test("below-editor placement uses Pi's reserved footer row instead of leaving it blank", () => {
+  assert.deepEqual(
+    buildPowerlineFooterLines("below", ["primary"], ["secondary"]),
+    ["primary", "secondary"],
+  );
+  assert.deepEqual(
+    buildPowerlineFooterLines("above", ["primary"], ["secondary"]),
+    ["secondary"],
+  );
 });
 
 test("session title above the editor suppresses Pi's leading widget spacer", () => {
