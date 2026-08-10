@@ -141,6 +141,10 @@ test("max thinking wave refreshes cached ANSI without rebuilding the layout", ()
   const cached = {
     topContent: `model | ${maxEffortWave("think:max", 10)} | usage`,
     secondaryContent: `details ${maxEffortWave("think:max", 10)}`,
+    secondaryLines: [
+      `details ${maxEffortWave("think:max", 10)}`,
+      `more ${maxEffortWave("think:max", 10)}`,
+    ],
   };
 
   const refreshed = refreshMaxThinkingWave(cached, 10, 11);
@@ -148,6 +152,10 @@ test("max thinking wave refreshes cached ANSI without rebuilding the layout", ()
   assert.notEqual(refreshed, cached);
   assert.equal(refreshed.topContent, `model | ${maxEffortWave("think:max", 11)} | usage`);
   assert.equal(refreshed.secondaryContent, `details ${maxEffortWave("think:max", 11)}`);
+  assert.deepEqual(refreshed.secondaryLines, [
+    `details ${maxEffortWave("think:max", 11)}`,
+    `more ${maxEffortWave("think:max", 11)}`,
+  ]);
   assert.equal(cached.topContent, `model | ${maxEffortWave("think:max", 10)} | usage`);
   assert.equal(refreshMaxThinkingWave(cached, 10, 10), cached);
 });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAlignedPrimaryContent, buildResponsiveLayout } from "../index.ts";
+import { buildAlignedPrimaryContent, buildResponsiveLayout, buildSessionTitleLines, installPowerlineWidgetSpacingPatch } from "../index.ts";
 import { collectHiddenExtensionStatusKeys, getNotificationExtensionStatuses, normalizeExtensionStatusValue, parsePowerlineConfig, mergeSegmentOptions, mergeSegmentsWithCustomItems, nextPowerlineSettingWithOptions, nextPowerlineSettingWithPreset, normalizeCompactExtensionStatus } from "../powerline-config.ts";
 import { getSeparator } from "../separators.ts";
 import { PRESETS } from "../presets.ts";
@@ -42,7 +42,7 @@ test("secondary layout group always starts after right on its own row", () => {
   assert.equal(stripAnsi(layout.secondaryContent), "secondary");
 });
 
-test("narrow rows keep configured secondary when primary overflow cannot fit", () => {
+test("narrow rows wrap primary overflow before configured secondary", () => {
   const layout = buildResponsiveLayout({
     left: [{ content: "primary-too-wide", width: 17 }],
     right: [],
@@ -50,7 +50,7 @@ test("narrow rows keep configured secondary when primary overflow cannot fit", (
   }, PRESETS.minimal, 12);
 
   assert.equal(layout.topContent, "");
-  assert.equal(stripAnsi(layout.secondaryContent), "secondary");
+  assert.deepEqual(layout.secondaryLines.map(stripAnsi), ["primary-too-", "wide", "secondary"]);
 });
 
 test("narrow rows place right overflow before configured secondary", () => {
@@ -63,6 +63,61 @@ test("narrow rows place right overflow before configured secondary", () => {
   const secondary = stripAnsi(layout.secondaryContent);
   assert.ok(secondary.includes("right"));
   assert.ok(secondary.indexOf("right") < secondary.indexOf("Z"));
+});
+
+test("secondary overflow continues on clean extra rows", () => {
+  const layout = buildResponsiveLayout({
+    left: [{ content: "left", width: 4 }],
+    right: [
+      { content: "first", width: 5 },
+      { content: "second", width: 6 },
+      { content: "third", width: 5 },
+    ],
+    secondary: [],
+  }, PRESETS.minimal, 12);
+
+  assert.deepEqual(layout.secondaryLines.map(stripAnsi), ["first", "second", "third"]);
+  assert.ok(layout.secondaryLines.every((line) => !line.includes("…")));
+});
+
+test("one oversized status wraps without a right-edge ellipsis", () => {
+  const layout = buildResponsiveLayout({
+    left: [],
+    right: [{ content: "alpha beta gamma", width: 16 }],
+    secondary: [],
+  }, PRESETS.minimal, 10);
+
+  assert.deepEqual(layout.secondaryLines.map(stripAnsi), ["alpha beta", "gamma"]);
+  assert.ok(layout.secondaryLines.every((line) => !line.includes("…")));
+});
+
+test("right-aligned session titles wrap without an edge ellipsis and use the full renderer width", () => {
+  const lines = buildSessionTitleLines("⏳ Tmux-based pi subagents plugin :: side-quests", 24, "right");
+
+  assert.ok(lines.length > 1);
+  assert.ok(lines.every((line) => !line.includes("…") && !line.includes("...")));
+  assert.ok(lines.every((line) => stripAnsi(line).length <= 24));
+  assert.equal(stripAnsi(buildSessionTitleLines("session", 10, "right")[0]), "   session");
+});
+
+test("session title above the editor suppresses Pi's leading widget spacer", () => {
+  const calls: boolean[] = [];
+  const prototype = {
+    renderWidgetContainer(
+      _container: unknown,
+      _widgets: Map<string, unknown>,
+      _spacerWhenEmpty: boolean,
+      leadingSpacer: boolean,
+    ) {
+      calls.push(leadingSpacer);
+    },
+  };
+
+  installPowerlineWidgetSpacingPatch(prototype);
+  prototype.renderWidgetContainer({}, new Map([["powerline-session-title", {}]]), true, true);
+  prototype.renderWidgetContainer({}, new Map([["another-extension", {}]]), true, true);
+
+  assert.deepEqual(calls, [false, true]);
 });
 
 test("fixed custom preset is removed in favor of powerline.layout", () => {

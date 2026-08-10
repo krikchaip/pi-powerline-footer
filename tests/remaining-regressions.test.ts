@@ -163,6 +163,23 @@ test("plain context segment omits the auto-compact indicator", () => {
   assert.equal(context.visible, true);
 });
 
+test("plain context segment handles unknown and estimated post-compaction usage", () => {
+  const unknown = renderSegment("context_pct_plain", createSegmentContext({
+    contextTokens: null,
+    contextPercent: null,
+    contextWindow: 200_000,
+  }));
+  const estimated = renderSegment("context_pct_plain", createSegmentContext({
+    contextTokens: 1_200,
+    contextPercent: 0.6,
+    contextWindow: 200_000,
+    contextApproximate: true,
+  }));
+
+  assert.equal(stripAnsi(unknown.content), "◫ ?/200k");
+  assert.equal(stripAnsi(estimated.content), "◫ ~1.2k/200k (0.6%)");
+});
+
 test("Nerd Font context icon uses stable database glyph", () => {
   assert.equal(NERD_ICONS.context, "\uF1C0");
 });
