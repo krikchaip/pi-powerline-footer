@@ -1246,6 +1246,8 @@ function computeResponsiveLayout(
 // ═══════════════════════════════════════════════════════════════════════════
 
 const WIDGET_SPACING_PATCH = Symbol.for("pi-powerline-footer.widget-spacing-patch");
+const FOOTER_LAYOUT_PATCH = Symbol.for("pi-powerline-footer.footer-layout-patch");
+const POWERLINE_FOOTER_FACTORY = Symbol.for("pi-powerline-footer.footer-factory");
 const SESSION_TITLE_WIDGET_KEY = "powerline-session-title";
 
 type RenderWidgetContainer = (
@@ -1304,6 +1306,83 @@ export function installPowerlineWidgetSpacingPatch(
   };
 }
 
+type SetExtensionFooter = (factory: unknown) => void;
+
+type FooterLayoutPatchState = {
+  originalSetExtensionFooter: SetExtensionFooter;
+};
+
+type FooterLayoutPrototype = {
+  setExtensionFooter?: SetExtensionFooter;
+} & Record<symbol, FooterLayoutPatchState | undefined>;
+
+type FooterLayoutEntry = {
+  component: unknown;
+  minSize?: number;
+};
+
+type FooterLayoutStack = {
+  entries?: FooterLayoutEntry[];
+};
+
+type FooterLayoutMode = {
+  footerContainer?: unknown;
+  fullscreenLayoutRoot?: FooterLayoutStack;
+};
+
+type FooterLayoutConfig = Pick<PowerlineConfig, "placement">;
+type FooterLayoutConfigProvider = () => FooterLayoutConfig;
+
+function updatePowerlineFooterMinimumSize(mode: unknown, minimumSize: number): void {
+  const interactiveMode = mode as FooterLayoutMode;
+  const footerContainer = interactiveMode.footerContainer;
+  const rootEntries = interactiveMode.fullscreenLayoutRoot?.entries;
+  if (footerContainer === undefined || rootEntries === undefined) return;
+
+  for (const rootEntry of rootEntries) {
+    const dock = rootEntry.component as FooterLayoutStack | undefined;
+    const footerEntry = dock?.entries?.find((entry) => entry.component === footerContainer);
+    if (footerEntry !== undefined) {
+      footerEntry.minSize = minimumSize;
+      return;
+    }
+  }
+}
+
+function isPowerlineFooterFactory(factory: unknown): boolean {
+  return typeof factory === "function"
+    && (factory as unknown as Record<symbol, unknown>)[POWERLINE_FOOTER_FACTORY] === true;
+}
+
+function markPowerlineFooterFactory<T extends Function>(factory: T): T {
+  Object.defineProperty(factory, POWERLINE_FOOTER_FACTORY, { value: true });
+  return factory;
+}
+
+/** Remove Pi's reserved footer row only while Powerline renders its footer above the editor. */
+export function installPowerlineFooterLayoutPatch(
+  prototype: object = InteractiveMode.prototype,
+  getFooterConfig: FooterLayoutConfigProvider = () => config,
+): void {
+  const patchable = prototype as FooterLayoutPrototype;
+  if (patchable[FOOTER_LAYOUT_PATCH]) return;
+
+  const originalSetExtensionFooter = patchable.setExtensionFooter;
+  if (typeof originalSetExtensionFooter !== "function") return;
+
+  const state: FooterLayoutPatchState = { originalSetExtensionFooter };
+  patchable[FOOTER_LAYOUT_PATCH] = state;
+  patchable.setExtensionFooter = function patchedSetExtensionFooter(
+    this: unknown,
+    factory: unknown,
+  ): void {
+    state.originalSetExtensionFooter.call(this, factory);
+    const removeReservedRow = isPowerlineFooterFactory(factory)
+      && getFooterConfig().placement === "above";
+    updatePowerlineFooterMinimumSize(this, removeReservedRow ? 0 : 1);
+  };
+}
+
 function warnInvalidSegmentSettings(ctx: any): void {
   if (config.invalidDisabledSegments.length > 0) {
     const invalid = config.invalidDisabledSegments.map((id) => JSON.stringify(id)).join(", ");
@@ -1331,6 +1410,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   const startupSettings = readSettings();
   config = parsePowerlineConfig(startupSettings.powerline, PRESET_NAMES);
   installPowerlineWidgetSpacingPatch();
+  installPowerlineFooterLayoutPatch();
   let resolvedShortcuts = resolveShortcutConfig(startupSettings);
   let bashModeSettings = parseBashModeSettings(startupSettings, resolvedShortcuts);
 
@@ -3518,7 +3598,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
     ctx.ui.setEditorComponent(editorFactory);
 
-    ctx.ui.setFooter((tui: any, theme: Theme, footerData: ReadonlyFooterDataProvider) => {
+    const footerFactory = markPowerlineFooterFactory((
+      tui: any,
+      theme: Theme,
+      footerData: ReadonlyFooterDataProvider,
+    ) => {
       footerDataRef = footerData;
       // Pi sets the provider cwd from sessionManager before binding session_start.
       // Do not treat its branch as authoritative if the extension cwd differs.
@@ -3553,6 +3637,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         },
       };
     });
+    ctx.ui.setFooter(footerFactory);
 
     installPowerlineWidgets(ctx);
   }

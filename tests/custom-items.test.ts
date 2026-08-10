@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAlignedPrimaryContent, buildPowerlineFooterLines, buildResponsiveLayout, buildSessionTitleLines, installPowerlineWidgetSpacingPatch } from "../index.ts";
+import { buildAlignedPrimaryContent, buildPowerlineFooterLines, buildResponsiveLayout, buildSessionTitleLines, installPowerlineFooterLayoutPatch, installPowerlineWidgetSpacingPatch } from "../index.ts";
 import { collectHiddenExtensionStatusKeys, getNotificationExtensionStatuses, normalizeExtensionStatusValue, parsePowerlineConfig, mergeSegmentOptions, mergeSegmentsWithCustomItems, nextPowerlineSettingWithOptions, nextPowerlineSettingWithPreset, normalizeCompactExtensionStatus } from "../powerline-config.ts";
 import { getSeparator } from "../separators.ts";
 import { PRESETS } from "../presets.ts";
@@ -158,6 +158,53 @@ test("an above-editor widget without the session-title key preserves Pi's leadin
   prototype.renderWidgetContainer({}, new Map([["another-extension", {}]]), true, true);
 
   assert.deepEqual(calls, [true]);
+});
+
+function createFooterLayoutPrototype() {
+  return {
+    setExtensionFooter(_factory: unknown) {},
+  };
+}
+
+function createFooterLayoutMode() {
+  const footerContainer = {};
+  const footerEntry = { component: footerContainer, minSize: 1 };
+  return {
+    footerEntry,
+    mode: {
+      footerContainer,
+      fullscreenLayoutRoot: {
+        entries: [{ component: { entries: [footerEntry] } }],
+      },
+    },
+  };
+}
+
+function createPowerlineFooterFactory(): () => void {
+  const factory = () => {};
+  Object.defineProperty(factory, Symbol.for("pi-powerline-footer.footer-factory"), { value: true });
+  return factory;
+}
+
+test("above placement removes Pi's reserved footer row independently of session-title content", () => {
+  const prototype = createFooterLayoutPrototype();
+  const { footerEntry, mode } = createFooterLayoutMode();
+
+  installPowerlineFooterLayoutPatch(prototype, () => ({ placement: "above" }));
+  prototype.setExtensionFooter.call(mode, createPowerlineFooterFactory());
+
+  assert.equal(footerEntry.minSize, 0);
+});
+
+test("removing Powerline's footer restores Pi's reserved footer row", () => {
+  const prototype = createFooterLayoutPrototype();
+  const { footerEntry, mode } = createFooterLayoutMode();
+
+  installPowerlineFooterLayoutPatch(prototype, () => ({ placement: "above" }));
+  prototype.setExtensionFooter.call(mode, createPowerlineFooterFactory());
+  prototype.setExtensionFooter.call(mode, undefined);
+
+  assert.equal(footerEntry.minSize, 1);
 });
 
 test("fixed custom preset is removed in favor of powerline.layout", () => {
