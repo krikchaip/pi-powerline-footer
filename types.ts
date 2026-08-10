@@ -83,8 +83,15 @@ export type StatusLinePreset =
   | "ascii";
 
 // Per-segment options
+export type ModelSegmentColor = "accent" | "borderAccent" | "text" | "muted" | "warning" | `#${string}`;
+
 export interface StatusLineSegmentOptions {
-  model?: { showThinkingLevel?: boolean; display?: "name" | "qualified" };
+  model?: {
+    showThinkingLevel?: boolean;
+    display?: "name" | "qualified";
+    color?: ModelSegmentColor;
+    bold?: boolean;
+  };
   path?: { 
     mode?: "basename" | "abbreviated" | "full";
     maxLength?: number;

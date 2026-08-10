@@ -110,6 +110,23 @@ test("self-colored custom items preserve ANSI resets and skip configured color",
   assert.equal(rendered.visible, true);
 });
 
+test("model segment uses the selected preset color when color is omitted", () => {
+  const rendered = renderSegment("model", createSegmentContext({
+    colors: { model: "warning" },
+    theme: { fg: (color, text) => `<${color}>${text}</${color}>` },
+  }));
+
+  assert.equal(rendered.content, "<warning>Sonnet 4</warning>");
+});
+
+test("model segment supports configured color and bold weight", () => {
+  const rendered = renderSegment("model", createSegmentContext({
+    options: { model: { color: "#12ab34", bold: true } },
+  }));
+
+  assert.equal(rendered.content, "\x1b[38;2;18;171;52m\x1b[1mSonnet 4\x1b[22m\x1b[0m");
+});
+
 test("cost segment supports subscription display modes and converted currencies", () => {
   __setCurrencyRatesForTest({ CNY: 7.2 });
 
