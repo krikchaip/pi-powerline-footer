@@ -7,6 +7,8 @@ import { __resetCurrencyRatesForTest, __setCurrencyRatesForTest } from "../curre
 import { renderSegment } from "../segments.ts";
 import type { SegmentContext } from "../types.ts";
 
+const ANSI_RESET = "\x1b[0m";
+
 const source = readFileSync(new URL("../index.ts", import.meta.url), "utf-8");
 const originalNerdFonts = process.env.POWERLINE_NERD_FONTS;
 process.env.POWERLINE_NERD_FONTS = "0";
@@ -56,6 +58,18 @@ function createSegmentContext(overrides: Partial<SegmentContext> = {}): SegmentC
     ...overrides,
   };
 }
+
+test("extension status separators reset neighboring ANSI styles", () => {
+  const rendered = renderSegment("extension_statuses", createSegmentContext({
+    extensionStatuses: new Map([
+      ["first", "\x1b[31mfirst"],
+      ["second", "\x1b[32msecond"],
+    ]),
+    theme: { fg: (color, text) => `\x1b[38;5;244m${text}${ANSI_RESET}` },
+  }));
+
+  assert.equal(rendered.content, "\x1b[31mfirst\x1b[0m\x1b[38;5;244m · \x1b[0m\x1b[0m\x1b[32msecond\x1b[0m");
+});
 
 test("model segment can show provider-qualified ids", () => {
   const normal = renderSegment("model", createSegmentContext());
