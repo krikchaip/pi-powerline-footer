@@ -4,6 +4,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import type { BuiltinStatusLineSegmentId, RenderedSegment, SegmentContext, SemanticColor, StatusLineSegment, StatusLineSegmentId } from "./types.ts";
 import { normalizeCompactExtensionStatus, normalizeExtensionStatusValue } from "./powerline-config.ts";
 import { fg, maxEffortWave, rainbow, rainbowBrightBold, applyColor } from "./theme.ts";
+import { ansi } from "./colors.ts";
 import { getIcons, SEP_DOT, getThinkingText } from "./icons.ts";
 import { formatUsdCost } from "./currency-rates.ts";
 import { getGitRemoteHost } from "./git-status.ts";
@@ -533,8 +534,10 @@ const extensionStatusesSegment: StatusLineSegment = {
 
     if (parts.length === 0) return { content: "", visible: false };
 
-    // Statuses already have their own styling applied by the extensions
-    const content = parts.join(` ${SEP_DOT} `);
+    // Normalization removes each extension's trailing reset. Reset before and
+    // after the joiner so its dot cannot inherit a neighboring status color.
+    const separator = `${ansi.reset}${color(ctx, "separator", ` ${SEP_DOT} `)}${ansi.reset}`;
+    const content = `${parts.join(separator)}${ansi.reset}`;
     return { content, visible: true };
   },
 };
