@@ -111,9 +111,8 @@ test("below-editor placement uses Pi's reserved footer row instead of leaving it
   );
 });
 
-test("session title above the editor suppresses Pi's leading widget spacer", () => {
-  const calls: boolean[] = [];
-  const prototype = {
+function createWidgetSpacingPrototype(calls: boolean[]) {
+  return {
     renderWidgetContainer(
       _container: unknown,
       _widgets: Map<string, unknown>,
@@ -123,12 +122,42 @@ test("session title above the editor suppresses Pi's leading widget spacer", () 
       calls.push(leadingSpacer);
     },
   };
+}
+
+test("below placement with a left-aligned session title preserves Pi's leading widget spacer", () => {
+  const calls: boolean[] = [];
+  const prototype = createWidgetSpacingPrototype(calls);
+
+  installPowerlineWidgetSpacingPatch(prototype, () => ({
+    placement: "below",
+    sessionTitle: { enabled: false, alignment: "left" },
+  }));
+  prototype.renderWidgetContainer({}, new Map([["powerline-session-title", {}]]), true, true);
+
+  assert.deepEqual(calls, [true]);
+});
+
+test("below placement with a right-aligned session title keeps Pi's leading widget spacer suppressed", () => {
+  const calls: boolean[] = [];
+  const prototype = createWidgetSpacingPrototype(calls);
+
+  installPowerlineWidgetSpacingPatch(prototype, () => ({
+    placement: "below",
+    sessionTitle: { enabled: true, alignment: "right" },
+  }));
+  prototype.renderWidgetContainer({}, new Map([["powerline-session-title", {}]]), true, true);
+
+  assert.deepEqual(calls, [false]);
+});
+
+test("an above-editor widget without the session-title key preserves Pi's leading widget spacer", () => {
+  const calls: boolean[] = [];
+  const prototype = createWidgetSpacingPrototype(calls);
 
   installPowerlineWidgetSpacingPatch(prototype);
-  prototype.renderWidgetContainer({}, new Map([["powerline-session-title", {}]]), true, true);
   prototype.renderWidgetContainer({}, new Map([["another-extension", {}]]), true, true);
 
-  assert.deepEqual(calls, [false, true]);
+  assert.deepEqual(calls, [true]);
 });
 
 test("fixed custom preset is removed in favor of powerline.layout", () => {

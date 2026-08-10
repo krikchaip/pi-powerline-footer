@@ -1263,9 +1263,21 @@ type WidgetSpacingPrototype = {
   renderWidgetContainer?: RenderWidgetContainer;
 } & Record<symbol, WidgetSpacingPatchState | undefined>;
 
-/** Remove Pi's generic leading spacer only when our session title is above the editor. */
+type WidgetSpacingConfig = Pick<PowerlineConfig, "placement" | "sessionTitle">;
+type WidgetSpacingConfigProvider = () => WidgetSpacingConfig;
+
+function suppressLeadingWidgetSpacer(
+  widgets: ReadonlyMap<string, unknown>,
+  widgetConfig: WidgetSpacingConfig,
+): boolean {
+  return widgets.has(SESSION_TITLE_WIDGET_KEY)
+    && !(widgetConfig.placement === "below" && widgetConfig.sessionTitle.alignment === "left");
+}
+
+/** Suppress Pi's generic leading spacer, except for a left-aligned title below the editor. */
 export function installPowerlineWidgetSpacingPatch(
   prototype: object = InteractiveMode.prototype,
+  getWidgetConfig: WidgetSpacingConfigProvider = () => config,
 ): void {
   const patchable = prototype as WidgetSpacingPrototype;
   if (patchable[WIDGET_SPACING_PATCH]) return;
@@ -1287,7 +1299,7 @@ export function installPowerlineWidgetSpacingPatch(
       container,
       widgets,
       spacerWhenEmpty,
-      leadingSpacer && !widgets.has(SESSION_TITLE_WIDGET_KEY),
+      leadingSpacer && !suppressLeadingWidgetSpacer(widgets, getWidgetConfig()),
     );
   };
 }
