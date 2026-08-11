@@ -15,7 +15,7 @@ Customizes the default [pi](https://github.com/badlogic/pi-mono) editor with a p
 
 **Working Vibes** — AI-generated themed loading messages. Set `/vibe star trek` and your "Working..." becomes "Running diagnostics..." or "Engaging warp drive...". Supports any theme: pirate, zen, noir, cowboy, etc.
 
-**Welcome banner** — Branded startup panel with a gradient logo, model info, keyboard tips, loaded AGENTS.md/extensions/skills/templates counts, an approximate initial system-prompt token count, and recent sessions. With normal startup output, it appears after Pi's loaded-resource sections and remains in the transcript during input and prompts. With `quietStartup: true`, it appears directly above the editor and dismisses on activity. Set `powerline.welcome` to `false` to disable it while keeping the footer enabled.
+**Welcome banner** — Branded startup panel with a gradient logo, model info, keyboard tips, loaded AGENTS.md/extensions/skills/templates counts, an approximate initial system-prompt token count, and recent sessions. With normal startup output, it appears after Pi's loaded-resource sections. With `quietStartup: true`, it is the only startup output. In both modes, it remains in the transcript during input and prompts, and appears only for a new Pi process—not after `/new` or `/resume`. Set `powerline.welcome` to `false` to disable it while keeping the footer enabled.
 
 **Powerline placement** — The primary Powerline row can be shown above or below the editor.
 
