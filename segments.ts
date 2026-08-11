@@ -79,25 +79,6 @@ const modelSegment: StatusLineSegment = {
   },
 };
 
-const shellModeSegment: StatusLineSegment = {
-  id: "shell_mode",
-  render(ctx) {
-    if (!ctx.shellModeActive) {
-      return { content: "", visible: false };
-    }
-
-    const shellName = ctx.shellName ?? "shell";
-    const state = ctx.shellRunning ? "run" : "idle";
-    const cwd = ctx.shellCwd ? basename(ctx.shellCwd) : null;
-    const parts = [shellName, state];
-    if (cwd) {
-      parts.push(cwd);
-    }
-
-    return { content: color(ctx, "shellMode", parts.join(SEP_DOT)), visible: true };
-  },
-};
-
 const pathSegment: StatusLineSegment = {
   id: "path",
   render(ctx) {
@@ -105,7 +86,7 @@ const pathSegment: StatusLineSegment = {
     const opts = ctx.options.path ?? {};
     const mode = opts.mode ?? "basename";
 
-    let pwd = ctx.shellModeActive && ctx.shellCwd ? ctx.shellCwd : (ctx.cwd ?? process.cwd());
+    let pwd = ctx.cwd ?? process.cwd();
     const home = process.env.HOME || process.env.USERPROFILE;
 
     if (mode === "basename") {
@@ -552,7 +533,6 @@ const extensionStatusesSegment: StatusLineSegment = {
 
 export const SEGMENTS: Record<BuiltinStatusLineSegmentId, StatusLineSegment> = {
   model: modelSegment,
-  shell_mode: shellModeSegment,
   path: pathSegment,
   git: gitSegment,
   thinking: thinkingSegment,

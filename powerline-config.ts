@@ -151,6 +151,11 @@ function normalizeCustomItems(raw: unknown): CustomStatusItem[] {
 }
 
 const BUILTIN_STATUS_LINE_SEGMENT_ID_SET = new Set<string>(BUILTIN_STATUS_LINE_SEGMENT_IDS);
+const REMOVED_STATUS_LINE_SEGMENT_IDS = new Set(["shell_mode"]);
+
+function isRemovedStatusLineSegmentId(value: unknown): boolean {
+  return typeof value === "string" && REMOVED_STATUS_LINE_SEGMENT_IDS.has(value.trim());
+}
 
 function normalizeStatusLineSegmentId(value: unknown, customItemIds: ReadonlySet<string>): StatusLineSegmentId | null {
   if (typeof value !== "string") return null;
@@ -178,6 +183,8 @@ function normalizeDisabledSegments(
   const seen = new Set<StatusLineSegmentId>();
 
   for (const entry of raw) {
+    if (isRemovedStatusLineSegmentId(entry)) continue;
+
     const segmentId = normalizeStatusLineSegmentId(entry, customItemIds);
     if (!segmentId) {
       invalidDisabledSegments.push(typeof entry === "string" ? entry.trim() : String(entry));
@@ -208,6 +215,8 @@ function normalizeLayout(
     const segments: StatusLineSegmentId[] = [];
     const seen = new Set<StatusLineSegmentId>();
     for (const entry of entries) {
+      if (isRemovedStatusLineSegmentId(entry)) continue;
+
       const segmentId = normalizeStatusLineSegmentId(entry, customItemIds);
       if (!segmentId) {
         invalidLayoutSegments.push(`${row}:${typeof entry === "string" ? entry.trim() : String(entry)}`);
