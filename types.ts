@@ -8,7 +8,6 @@ export type ThemeLike = Pick<Theme, "fg">;
 // Semantic color names for segments
 export type SemanticColor =
   | "model"
-  | "shellMode"
   | "path"
   | "gitDirty"
   | "gitClean"
@@ -31,7 +30,6 @@ export type ColorScheme = Partial<Record<SemanticColor, ColorValue>>;
 // Built-in segment identifiers
 export const BUILTIN_STATUS_LINE_SEGMENT_IDS = [
   "model",
-  "shell_mode",
   "path",
   "git",
   "subagents",
@@ -210,10 +208,6 @@ export interface SegmentContext {
   usingSubscription: boolean;
   queueSummary: QueueSummary;
   sessionStartTime: number;
-  shellModeActive: boolean;
-  shellRunning: boolean;
-  shellName: string | null;
-  shellCwd: string | null;
   
   // Git
   git: GitStatus;

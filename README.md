@@ -31,10 +31,6 @@ Customizes the default [pi](https://github.com/badlogic/pi-mono) editor with a p
 
 **Token intelligence** — Smart formatting (1.2k, 45M), used/max/percentage context display, subscription detection, and configurable subscription cost display.
 
-**Sticky bash mode** — Toggle bash mode with `ctrl+shift+b` or `/bash-mode`. It keeps a managed shell session alive for the current pi session, shows a dedicated `shell_mode` segment, streams command output into an embedded transcript below the editor, and lets `cd` or exported state persist across commands.
-
-**Shell ghost suggestions** — Optional bash-mode completions can show inline ghost suggestions from successful project shell history, deterministic path and git continuations, guarded global history for high-confidence heads like `git`, and a tiny curated default set. Right now that curated set is `g` → `git status` and `c` → `cd ..`. Shell-native completion probes stay disabled. Set `bashMode.completions` to `true` to enable bash-mode ghosts and one-off `!command` / `!!command` predictions.
-
 ## Installation
 
 ```bash
@@ -245,42 +241,6 @@ Segment display formats (opt-in; defaults match the historical rendering):
 }
 ```
 
-## Bash mode
-
-Toggle bash mode with either:
-
-- `ctrl+shift+b`
-- `/bash-mode on`
-- `/bash-mode off`
-- `/bash-mode toggle`
-
-Reset the managed shell with `/bash-reset`.
-
-While bash mode is active:
-
-- Enter runs the current shell command
-- Up and Down browse matching shell history
-- `escape` exits bash mode and returns to normal prompt mode
-- `ctrl+c` interrupts the active shell job before falling back to normal pi behavior
-- When `bashMode.completions` is `true`, Right Arrow or Tab accepts ghost text into the editor without running it
-
-The managed shell is persistent for the current pi session. Command output appears in a transcript below the editor, and shell cwd changes are reflected in the footer path and `shell_mode` segment. Bash-mode ghost suggestions and one-off `!command` / `!!command` predictions are opt-in because they add editor work. When enabled, bash mode can show the newest successful project-history ghost on an empty prompt. Mode entry stays quiet: there is no automatic or manual dropdown completion surface, and ghost suggestions do not run shell-native completion probes.
-
-### Bash mode configuration
-
-In `~/.pi/agent/settings.json` (or under `PI_CODING_AGENT_DIR` when that environment variable is set):
-
-```json
-{
-  "bashMode": {
-    "toggleShortcut": "ctrl+shift+b",
-    "completions": false,
-    "transcriptMaxLines": 2000,
-    "transcriptMaxBytes": 524288
-  }
-}
-```
-
 ### Editor clipboard and navigation shortcuts
 
 - `ctrl+alt+c` — copy full editor content
@@ -458,7 +418,7 @@ The origin remote is detected (SSH or HTTPS) and mapped to an icon: GitHub (), G
 
 ## Segments
 
-`model` · `thinking` · `shell_mode` · `path` · `git` · `subagents` · `token_in` · `token_out` · `token_total` · `cost` · `context_pct` · `context_pct_plain` (no auto-compact indicator) · `context_total` · `time_spent` · `time` · `session` · `hostname` · `cache_read` · `cache_write` · `extension_statuses`
+`model` · `thinking` · `path` · `git` · `subagents` · `token_in` · `token_out` · `token_total` · `cost` · `context_pct` · `context_pct_plain` (no auto-compact indicator) · `context_total` · `time_spent` · `time` · `session` · `hostname` · `cache_read` · `cache_write` · `extension_statuses`
 
 ## Separators
 
@@ -473,7 +433,6 @@ Colors are configurable via pi's theme system. Each preset defines its own color
 | Semantic | Theme Color | Description |
 |----------|-------------|-------------|
 | `model` | `#d787af` | Model name |
-| `shellMode` | `accent` | Bash mode segment |
 | `path` | `#00afaf` | Directory path |
 | `gitClean` | `success` | Git branch (clean) |
 | `gitDirty` | `warning` | Git branch (dirty) |
@@ -495,7 +454,6 @@ Create `extensions/powerline-footer/theme.json` in the agent dir (`~/.pi/agent` 
 {
   "colors": {
     "model": "accent",
-    "shellMode": "accent",
     "path": "#00afaf",
     "gitClean": "success",
     "thinking": "thinkingOff",
