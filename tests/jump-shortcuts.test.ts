@@ -6,9 +6,9 @@ import { parseBashModeSettings, renderFastPowerlineEditor, resolveShortcutConfig
 
 test("surviving editor shortcuts resolve without app-owned chat scrolling", () => {
   const resolved = resolveShortcutConfig({});
-  assert.equal(resolved.stashHistory, "ctrl+alt+h");
   assert.equal(resolved.copyEditor, "ctrl+alt+c");
   assert.equal(resolved.cutEditor, "ctrl+alt+x");
+  assert.equal(resolved.queueOpen, "ctrl+alt+q");
   assert.equal(resolved.reply, null);
   assert.equal(resolved.editorStart, "super+shift+up");
   assert.equal(resolved.editorEnd, "super+shift+down");

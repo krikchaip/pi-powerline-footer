@@ -24,7 +24,6 @@ export interface PowerlineConfig {
   welcome: boolean;
   showLastPrompt: boolean;
   sessionTitle: SessionTitleConfig;
-  stashSharpSShortcut: boolean;
   queue: { compactPromptMode: CompactPromptMode };
   workingVibes: { color?: ColorValue | "rainbow" };
 }
@@ -349,7 +348,6 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     welcome: true,
     showLastPrompt: true,
     sessionTitle: { enabled: false, alignment: "left" },
-    stashSharpSShortcut: false,
     queue: { compactPromptMode: "queue" },
     workingVibes: {},
   };
@@ -378,7 +376,6 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     welcome: value.welcome !== false,
     showLastPrompt: value.showLastPrompt !== false,
     sessionTitle: normalizeSessionTitle(value.sessionTitle),
-    stashSharpSShortcut: value.stashSharpSShortcut === true,
     queue: normalizeQueueOptions(value.queue),
     workingVibes: isRecord(value.workingVibes) && typeof value.workingVibes.color === "string" && value.workingVibes.color.trim()
       ? { color: value.workingVibes.color.trim() as ColorValue | "rainbow" }
@@ -443,7 +440,7 @@ export function nextPowerlineSettingWithPreset(existingPowerlineSetting: unknown
 
 export function nextPowerlineSettingWithOptions(
   existingPowerlineSetting: unknown,
-  updates: Partial<Pick<PowerlineConfig, "welcome" | "sessionTitle" | "stashSharpSShortcut" | "placement">>,
+  updates: Partial<Pick<PowerlineConfig, "welcome" | "sessionTitle" | "placement">>,
   currentPreset: StatusLinePreset,
 ): unknown {
   if (!isRecord(existingPowerlineSetting)) {

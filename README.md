@@ -11,8 +11,6 @@ Customizes the default [pi](https://github.com/badlogic/pi-mono) editor with a p
 
 ## Features
 
-**Editor stash** — Press `Alt+S` to save your editor content and clear the editor, type a quick prompt, then press `Alt+S` again with an empty editor to restore the stash. Toggles between stash, pop, and update-existing-stash. A `stash` indicator appears in the powerline bar while text is stashed.
-
 **Powerline Queue** — Messages typed during compaction are held by Powerline and delivered after successful compaction instead of disappearing into Pi's native queue. `/queue` provides a file-backed queue for aliases, retries, clears, and manual delivery. Active queued and blocked counts appear in the `queue` segment only when there is something to show.
 
 **Working Vibes** — AI-generated themed loading messages. Set `/vibe star trek` and your "Working..." becomes "Running diagnostics..." or "Engaging warp drive...". Supports any theme: pirate, zen, noir, cowboy, etc.
@@ -21,7 +19,7 @@ Customizes the default [pi](https://github.com/badlogic/pi-mono) editor with a p
 
 **Powerline placement** — The primary Powerline row can be shown above or below the editor.
 
-**Native Pi layout** — Pi owns fixed input, feed scrolling, selection, and terminal behavior; this extension supplies powerline widgets and the custom bash/stash/editor integrations.
+**Native Pi layout** — Pi owns fixed input, feed scrolling, selection, and terminal behavior; this extension supplies powerline widgets and custom bash/editor integrations.
 
 **Live thinking level indicator** — Shows current thinking level (`think:off`, `think:med`, etc.) with per-level colors. High, xhigh, and max levels use a rainbow effect inspired by Claude Code's ultrathink.
 
@@ -283,35 +281,6 @@ In `~/.pi/agent/settings.json` (or under `PI_CODING_AGENT_DIR` when that environ
 }
 ```
 
-## Editor Stash
-
-Use `Alt+S` / `Option+S` as a quick stash toggle while drafting. It keeps one active stash and clears the editor when stashing. Powerline listens for unambiguous Alt/Meta-S escape encodings by default. If your old terminal setup only emits the printable German sharp-S character for Option+S and you still want that to trigger stash, set `"stashSharpSShortcut": true` under `powerline`.
-
-| Editor | Stash | `Alt+S` result |
-|--------|-------|----------------|
-| Has text | Empty | Stash current text, clear editor |
-| Empty | Has stash | Restore stash into editor |
-| Has text | Has stash | Update stash with current text, clear editor |
-| Empty | Empty | Show "Nothing to stash" |
-
-Stashes are restored only by explicit user action. Agent runs do not restore stashed text automatically.
-
-The `stash` indicator appears in the powerline bar (on presets with `extension_statuses`). Active stash is still session-local and resets on session switch / disable, but stash history is persisted to the agent dir at `powerline-footer/stash-history.json` so it survives restarts. By default the agent dir is `~/.pi/agent`; set `PI_CODING_AGENT_DIR` to move global powerline settings, stash history, sessions, vibes, skills, commands, and extension discovery with Pi.
-
-### Stash history
-
-Open prompt history with either:
-
-- `ctrl+alt+h`
-- `/stash-history`
-
-Prompt history now has two sources:
-
-- stashed prompts — up to 12 recent stashed prompts (newest first)
-- recent project prompts — up to 50 recent user-submitted prompts pulled on demand from newest pi sessions in the current project folder
-
-Selecting a stashed or project prompt-history entry inserts it into the editor. If the editor already has text, you can choose `Replace`, `Append`, or `Cancel`.
-
 ### Editor clipboard and navigation shortcuts
 
 - `ctrl+alt+c` — copy full editor content
@@ -338,7 +307,7 @@ Set `reply` to `null` to disable it. Quotes are loaded only when the command or 
 
 If you already installed the standalone `pi-quote-reply` extension, remove or disable it before using Powerline's integrated `/reply`. Pi suffixes duplicate extension commands as `/reply:1` and `/reply:2`, so keeping both installed prevents plain `/reply` from dispatching reliably.
 
-Copy/cut actions do not modify stash state or stash history. Dragging files, folders, images, or screenshots from Finder into the custom editor inserts their path strings. Pi owns chat scrolling, selection, and fixed input behavior natively.
+Dragging files, folders, images, or screenshots from Finder into the custom editor inserts their path strings. Pi owns chat scrolling, selection, and fixed input behavior natively.
 
 ### Shortcut configuration
 
@@ -347,7 +316,6 @@ You can override shortcut keys in the agent settings file:
 ```json
 {
   "powerlineShortcuts": {
-    "stashHistory": "ctrl+alt+h",
     "copyEditor": "ctrl+alt+c",
     "cutEditor": "ctrl+alt+x",
     "queueOpen": "ctrl+alt+q",
@@ -358,7 +326,7 @@ You can override shortcut keys in the agent settings file:
 }
 ```
 
-After changing bindings, run `/reload`. Invalid bindings fall back to safe defaults. Reserved key conflicts like `Alt+S` or duplicate conflicts fall back to that action's default when it is free, otherwise they disable the action. Set a binding to `null` or `""` to disable that action. `cmd` and `command` are accepted aliases for Pi's `super` modifier for the documented Command navigation keys.
+After changing bindings, run `/reload`. Invalid bindings fall back to safe defaults. Duplicate conflicts fall back to that action's default when it is free. Otherwise, they disable the action. The opt-in `reply` shortcut is disabled when it conflicts with a reserved or default shortcut. Set a binding to `null` or `""` to disable that action. `cmd` and `command` are accepted aliases for Pi's `super` modifier for the documented Command navigation keys.
 
 ### Editor autocomplete composition
 
