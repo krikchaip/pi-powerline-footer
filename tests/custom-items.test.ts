@@ -240,7 +240,6 @@ test("parsePowerlineConfig supports object config with custom items", () => {
   assert.equal(config.welcome, true);
   assert.equal(config.showLastPrompt, true);
   assert.deepEqual(config.sessionTitle, { enabled: false, alignment: "left" });
-  assert.equal(config.stashSharpSShortcut, false);
   assert.deepEqual(config.queue, { compactPromptMode: "queue" });
 });
 
@@ -433,17 +432,19 @@ test("parsePowerlineConfig supports queue compact prompt mode", () => {
   assert.deepEqual(shorthand.queue, { compactPromptMode: "queue" });
 });
 
-test("parsePowerlineConfig supports welcome and legacy sharp-S settings", () => {
+test("parsePowerlineConfig ignores removed stash and idea-capture settings", () => {
   const config = parsePowerlineConfig(
-    { preset: "compact", welcome: false, stashSharpSShortcut: true },
+    { preset: "compact", welcome: false, stashSharpSShortcut: true, queue: { captureSigil: false } },
     ["default", "compact"],
   );
   const shorthand = parsePowerlineConfig("compact", ["default", "compact"]);
 
   assert.equal(config.welcome, false);
-  assert.equal(config.stashSharpSShortcut, true);
+  assert.equal(Object.hasOwn(config, "stashSharpSShortcut"), false);
+  assert.deepEqual(config.queue, { compactPromptMode: "queue" });
   assert.equal(shorthand.welcome, true);
-  assert.equal(shorthand.stashSharpSShortcut, false);
+  assert.equal(Object.hasOwn(shorthand, "stashSharpSShortcut"), false);
+  assert.deepEqual(shorthand.queue, { compactPromptMode: "queue" });
 });
 test("parsePowerlineConfig extracts supported segment options", () => {
   const config = parsePowerlineConfig(
