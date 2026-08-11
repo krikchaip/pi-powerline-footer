@@ -231,64 +231,10 @@ function renderWelcomeBox(
 // Welcome Components
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Welcome overlay component for pi agent.
- * Displays a branded splash screen with logo, tips, and loaded counts.
- */
-export class WelcomeComponent implements Component {
-  private data: WelcomeData;
-  private countdown: number = 30;
-
-  constructor(
-    modelName: string,
-    providerName: string,
-    recentSessions: RecentSession[] = [],
-    loadedCounts: LoadedCounts = { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 },
-    initialContextTokens: number | null = null,
-  ) {
-    this.data = { modelName, providerName, recentSessions, loadedCounts, initialContextTokens };
-  }
-
-  setCountdown(seconds: number): void {
-    this.countdown = seconds;
-  }
-
-  invalidate(): void {}
-
-  render(termWidth: number): string[] {
-    // Minimum width for two-column layout (must match renderWelcomeBox)
-    const minLayoutWidth = 44;
-    if (termWidth < minLayoutWidth) {
-      return [];
-    }
-    
-    const minWidth = 76;
-    const maxWidth = 96;
-    // Clamp to termWidth to prevent crash on narrow terminals
-    const boxWidth = Math.min(termWidth, Math.max(minWidth, Math.min(termWidth - 2, maxWidth)));
-    
-    // Bottom line with countdown
-    const countdownText = ` Press any key to continue (${this.countdown}s) `;
-    const countdownStyled = dim(countdownText);
-    const bottomContentWidth = boxWidth - 2;
-    const countdownVisLen = visibleWidth(countdownText);
-    const leftPad = Math.floor((bottomContentWidth - countdownVisLen) / 2);
-    const rightPad = bottomContentWidth - countdownVisLen - leftPad;
-    const hChar = "─";
-    const bottomLine = dim(hChar.repeat(Math.max(0, leftPad))) + 
-      countdownStyled + 
-      dim(hChar.repeat(Math.max(0, rightPad)));
-    
-    return renderWelcomeBox(this.data, termWidth, bottomLine);
-  }
-}
-
-/**
- * Welcome header - same layout as overlay but persistent (no countdown).
- * Used when quietStartup: true.
- */
+/** Welcome banner used below Pi's startup heading or above the editor. */
 export class WelcomeHeader implements Component {
   private data: WelcomeData;
+  private trailingSpacing: boolean;
 
   constructor(
     modelName: string,
@@ -296,8 +242,10 @@ export class WelcomeHeader implements Component {
     recentSessions: RecentSession[] = [],
     loadedCounts: LoadedCounts = { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 },
     initialContextTokens: number | null = null,
+    options: { trailingSpacing?: boolean } = {},
   ) {
     this.data = { modelName, providerName, recentSessions, loadedCounts, initialContextTokens };
+    this.trailingSpacing = options.trailingSpacing ?? true;
   }
 
   invalidate(): void {}
@@ -321,8 +269,8 @@ export class WelcomeHeader implements Component {
     const bottomLine = dim(hChar.repeat(leftCol)) + dim("┴") + dim(hChar.repeat(rightCol));
     
     const lines = renderWelcomeBox(this.data, termWidth, bottomLine);
-    if (lines.length > 0) {
-      lines.push(""); // Add empty line for spacing only if we rendered content
+    if (this.trailingSpacing && lines.length > 0) {
+      lines.push("");
     }
     return lines;
   }
