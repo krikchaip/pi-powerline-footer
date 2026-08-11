@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import fsPromises from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { discoverLoadedCounts, getRecentSessions, WelcomeHeader } from "../welcome.ts";
+
+const indexSource = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 
 test("discoverLoadedCounts ignores dangling skill symlinks", () => {
   const root = mkdtempSync(join(tmpdir(), "powerline-welcome-"));
@@ -89,11 +91,25 @@ test("welcome renders the initial system prompt token estimate", () => {
     counts,
     tokens,
   ).render(96).join("\n").replace(/\x1b\[[0-9;]*m/g, ""));
+  const editorAdjacent = new WelcomeHeader(
+    "Model",
+    "Provider",
+    [],
+    counts,
+    null,
+    { trailingSpacing: false },
+  ).render(96);
 
   assert.match(rendered, /≈ 1\.9k initial prompt tokens/);
   for (const output of withoutEstimate) {
     assert.doesNotMatch(output, /initial prompt tokens/);
   }
+  assert.notEqual(editorAdjacent.at(-1), "");
+  assert.match(indexSource, /new WelcomeHeader\(modelName, providerName, recentSessions, loadedCounts, initialContextTokens, options\)/);
+  assert.match(indexSource, /function setupWelcomeResourcesBanner/);
+  assert.match(indexSource, /function setupWelcomeEditorBanner/);
+  assert.doesNotMatch(indexSource, /function setupWelcomeOverlay/);
+  assert.doesNotMatch(indexSource, /new WelcomeComponent\(/);
 });
 
 test("getRecentSessions prefers cwd basename from session header", async () => {
@@ -293,7 +309,12 @@ async function welcomeHarness(t: test.TestContext, home: string, quietStartup: b
           installations++;
         });
       },
-      setStatus() {}, setWidget() {}, setFooter() {}, setWorkingMessage() {}, notify() {},
+      setWidget(key: string, factory?: () => WelcomeView) {
+        if (key !== "powerline-welcome") return;
+        view = factory?.();
+        if (view) installations++;
+      },
+      setStatus() {}, setFooter() {}, setWorkingMessage() {}, notify() {},
       onTerminalInput: () => () => {},
     },
   };
@@ -322,7 +343,7 @@ async function welcomeHarness(t: test.TestContext, home: string, quietStartup: b
 test("pending welcome discovery is cancelled by typing or nonblocking shutdown", async (t) => {
   for (const quiet of [true, false]) {
     for (const action of ["typing", "shutdown"] as const) {
-      await t.test(`${quiet ? "header" : "overlay"}: ${action}`, async (t) => {
+      await t.test(`${quiet ? "editor" : "resources"}: ${action}`, async (t) => {
         await withTemporaryHome(async (home) => {
           const harness = await welcomeHarness(t, home, quiet);
           const entered = Promise.withResolvers<void>();
@@ -367,7 +388,7 @@ test("pending welcome discovery is cancelled by typing or nonblocking shutdown",
 
 test("eligible welcome installs and dismisses without losing input", async (t) => {
   for (const quiet of [true, false]) {
-    await t.test(quiet ? "header" : "overlay", async (t) => {
+    await t.test(quiet ? "editor" : "resources", async (t) => {
       await withTemporaryHome(async (home) => {
         const harness = await welcomeHarness(t, home, quiet);
         try {
@@ -376,13 +397,10 @@ test("eligible welcome installs and dismisses without losing input", async (t) =
           const view = harness.view;
           assert.ok(view);
           assert.match(view.render(96).join("\n"), /Test model/);
-          if (!quiet) {
-            view.handleInput?.("x");
-            assert.equal(harness.ctx.ui.getEditorText(), "x");
-          } else {
-            harness.type("x");
-          }
-          assert.equal(harness.view, undefined);
+          harness.type("x");
+          if (quiet) await harness.runStartupWork();
+          assert.equal(harness.ctx.ui.getEditorText(), "x");
+          assert.equal(Boolean(harness.view), !quiet);
           assert.equal(harness.installations, 1);
         } finally {
           await harness.event("session_shutdown");

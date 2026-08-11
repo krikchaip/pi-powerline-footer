@@ -4,7 +4,7 @@
 
 # pi-powerline-footer
 
-Customizes the default [pi](https://github.com/badlogic/pi-mono) editor with a powerline-style status bar, welcome overlay, and AI-generated "vibes" for loading messages. Inspired by [Powerlevel10k](https://github.com/romkatv/powerlevel10k) and [oh-my-pi](https://github.com/can1357/oh-my-pi).
+Customizes the default [pi](https://github.com/badlogic/pi-mono) editor with a powerline-style status bar, welcome banner, and AI-generated "vibes" for loading messages. Inspired by [Powerlevel10k](https://github.com/romkatv/powerlevel10k) and [oh-my-pi](https://github.com/can1357/oh-my-pi).
 
 <img width="1261" height="817" alt="Example powerline UI" src="https://github.com/user-attachments/assets/4cc43320-3fb8-4503-b857-69dffa7028f2" />
 
@@ -15,7 +15,7 @@ Customizes the default [pi](https://github.com/badlogic/pi-mono) editor with a p
 
 **Working Vibes** — AI-generated themed loading messages. Set `/vibe star trek` and your "Working..." becomes "Running diagnostics..." or "Engaging warp drive...". Supports any theme: pirate, zen, noir, cowboy, etc.
 
-**Welcome overlay** — Branded splash screen shown as centered overlay on startup. Shows gradient logo, model info, keyboard tips, loaded AGENTS.md/extensions/skills/templates counts, an approximate initial system-prompt token count, and recent sessions. Auto-dismisses after 30 seconds or on any key press. Set `powerline.welcome` to `false` to disable it while keeping the footer enabled.
+**Welcome banner** — Branded startup panel with a gradient logo, model info, keyboard tips, loaded AGENTS.md/extensions/skills/templates counts, an approximate initial system-prompt token count, and recent sessions. With normal startup output, it appears after Pi's loaded-resource sections and remains in the transcript during input and prompts. With `quietStartup: true`, it appears directly above the editor and dismisses on activity. Set `powerline.welcome` to `false` to disable it while keeping the footer enabled.
 
 **Powerline placement** — The primary Powerline row can be shown above or below the editor.
 
