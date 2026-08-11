@@ -3,26 +3,36 @@ import assert from "node:assert/strict";
 import { installPowerlineWelcomeHeaderPatch } from "../index.ts";
 
 const WELCOME_HEADER_FACTORY = Symbol.for("pi-powerline-footer.welcome-header-factory");
+const WELCOME_FORCE_RESOURCES = Symbol.for("pi-powerline-footer.welcome-force-resources");
 const WELCOME_HEADER_REMOVED = Symbol.for("pi-powerline-footer.welcome-header-removed");
 
-function markWelcomeFactory<T extends () => object>(factory: T, onRemoved?: () => void): T {
+function markWelcomeFactory<T extends () => object>(
+  factory: T,
+  options: { forceResources?: boolean; onRemoved?: () => void } = {},
+): T {
   Object.defineProperty(factory, WELCOME_HEADER_FACTORY, { value: true });
-  if (onRemoved) Object.defineProperty(factory, WELCOME_HEADER_REMOVED, { value: onRemoved });
+  Object.defineProperty(factory, WELCOME_FORCE_RESOURCES, { value: options.forceResources ?? true });
+  if (options.onRemoved) Object.defineProperty(factory, WELCOME_HEADER_REMOVED, { value: options.onRemoved });
   return factory;
 }
 
 function createPrototype(originalHeaderCalls: unknown[]) {
   const loadedTheme = { name: "loaded theme" };
   const resourceGap = { name: "resource gap" };
+  const resourceOptions: unknown[] = [];
   return {
     loadedTheme,
     resourceGap,
+    resourceOptions,
     prototype: {
       setExtensionHeader(factory: unknown) {
         originalHeaderCalls.push(factory);
       },
-      showLoadedResources(this: { loadedResourcesContainer: { children: unknown[] } }) {
-        this.loadedResourcesContainer.children = [loadedTheme, resourceGap];
+      showLoadedResources(this: { loadedResourcesContainer: { children: unknown[] } }, options?: unknown) {
+        resourceOptions.push(options);
+        const force = options !== null && typeof options === "object"
+          && (options as { force?: unknown }).force === true;
+        this.loadedResourcesContainer.children = force ? [loadedTheme, resourceGap] : [];
       },
     },
   };
@@ -43,7 +53,7 @@ function createMode(nativeHeading: object, headerGap: object) {
 
 test("welcome patch renders the banner after Pi's loaded resources", () => {
   const originalHeaderCalls: unknown[] = [];
-  const { prototype, loadedTheme, resourceGap } = createPrototype(originalHeaderCalls);
+  const { prototype, loadedTheme, resourceGap, resourceOptions } = createPrototype(originalHeaderCalls);
   const nativeHeading = { name: "native heading" };
   const headerGap = { name: "header gap" };
   let disposed = false;
@@ -60,6 +70,7 @@ test("welcome patch renders the banner after Pi's loaded resources", () => {
 
   assert.deepEqual(mode.headerContainer.children, [nativeHeading, headerGap]);
   assert.deepEqual(mode.loadedResourcesContainer.children, [loadedTheme, resourceGap, banner]);
+  assert.deepEqual(resourceOptions, [{ force: true }]);
   assert.deepEqual(originalHeaderCalls, []);
 
   prototype.setExtensionHeader.call(mode, undefined);
@@ -67,6 +78,23 @@ test("welcome patch renders the banner after Pi's loaded resources", () => {
   assert.deepEqual(mode.loadedResourcesContainer.children, [loadedTheme, resourceGap]);
   assert.deepEqual(originalHeaderCalls, [undefined]);
   assert.equal(disposed, true);
+});
+
+test("quiet welcome keeps the banner without forcing Pi resources", () => {
+  const originalHeaderCalls: unknown[] = [];
+  const { prototype, resourceOptions } = createPrototype(originalHeaderCalls);
+  const banner = {};
+  const mode = createMode({ name: "quiet header" }, { name: "quiet gap" });
+
+  installPowerlineWelcomeHeaderPatch(prototype);
+  prototype.setExtensionHeader.call(mode, markWelcomeFactory(
+    () => banner,
+    { forceResources: false },
+  ));
+  prototype.showLoadedResources.call(mode);
+
+  assert.deepEqual(resourceOptions, [undefined]);
+  assert.deepEqual(mode.loadedResourcesContainer.children, [banner]);
 });
 
 test("a competing header clears Powerline ownership without clearing the competitor", () => {
@@ -82,8 +110,10 @@ test("a competing header clears Powerline ownership without clearing the competi
   installPowerlineWelcomeHeaderPatch(prototype);
   prototype.setExtensionHeader.call(mode, markWelcomeFactory(
     () => banner,
-    () => {
-      powerlineOwnsWelcome = false;
+    {
+      onRemoved: () => {
+        powerlineOwnsWelcome = false;
+      },
     },
   ));
   prototype.setExtensionHeader.call(mode, competingFactory);

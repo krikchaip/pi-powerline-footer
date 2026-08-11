@@ -24,7 +24,6 @@ import { getGitStatus, invalidateGitStatus, invalidateGitBranch, subscribeGitUpd
 import { SessionBranchCache, SessionTokenStatsCache } from "./token-stats.ts";
 import { ansi, getFgAnsiCode } from "./colors.ts";
 import { WelcomeHeader, discoverLoadedCounts, getRecentSessions } from "./welcome.ts";
-import { createWelcomeDismissScheduler } from "./welcome-dismiss.ts";
 import { createRenderScheduler } from "./render-scheduler.ts";
 import { refreshMaxThinkingWave } from "./thinking-wave.ts";
 import { getEditorAutocompleteProvider, passAutocompleteProviderThroughPreviousEditor } from "./editor-composition.ts";
@@ -880,10 +879,10 @@ const FOOTER_LAYOUT_PATCH = Symbol.for("pi-powerline-footer.footer-layout-patch"
 const WELCOME_HEADER_PATCH = Symbol.for("pi-powerline-footer.welcome-header-patch");
 const POWERLINE_FOOTER_FACTORY = Symbol.for("pi-powerline-footer.footer-factory");
 const POWERLINE_WELCOME_HEADER_FACTORY = Symbol.for("pi-powerline-footer.welcome-header-factory");
+const POWERLINE_WELCOME_FORCE_RESOURCES = Symbol.for("pi-powerline-footer.welcome-force-resources");
 const POWERLINE_WELCOME_HEADER_REMOVED = Symbol.for("pi-powerline-footer.welcome-header-removed");
 const POWERLINE_WELCOME_HEADER_COMPONENT = Symbol.for("pi-powerline-footer.welcome-header-component");
 const SESSION_TITLE_WIDGET_KEY = "powerline-session-title";
-const WELCOME_WIDGET_KEY = "powerline-welcome";
 
 type RenderWidgetContainer = (
   container: unknown,
@@ -1037,6 +1036,7 @@ type WelcomeHeaderComponent = {
 
 type WelcomeHeaderRegistration = {
   factory: () => WelcomeHeaderComponent;
+  forceResources: boolean;
   component?: WelcomeHeaderComponent;
   onRemoved?: () => void;
 };
@@ -1056,8 +1056,13 @@ function isPowerlineWelcomeHeaderFactory(factory: unknown): factory is Powerline
     && (factory as unknown as Record<symbol, unknown>)[POWERLINE_WELCOME_HEADER_FACTORY] === true;
 }
 
-function markPowerlineWelcomeHeaderFactory<T extends Function>(factory: T, onRemoved: () => void): T {
+function markPowerlineWelcomeHeaderFactory<T extends Function>(
+  factory: T,
+  onRemoved: () => void,
+  forceResources: boolean,
+): T {
   Object.defineProperty(factory, POWERLINE_WELCOME_HEADER_FACTORY, { value: true });
+  Object.defineProperty(factory, POWERLINE_WELCOME_FORCE_RESOURCES, { value: forceResources });
   Object.defineProperty(factory, POWERLINE_WELCOME_HEADER_REMOVED, { value: onRemoved });
   return factory;
 }
@@ -1135,6 +1140,7 @@ export function installPowerlineWelcomeHeaderPatch(
     const onRemoved = factory[POWERLINE_WELCOME_HEADER_REMOVED];
     interactiveMode[POWERLINE_WELCOME_HEADER_COMPONENT] = {
       factory,
+      forceResources: factory[POWERLINE_WELCOME_FORCE_RESOURCES] === true,
       onRemoved: typeof onRemoved === "function" ? onRemoved as () => void : undefined,
     };
     appendPowerlineWelcomeHeader(interactiveMode);
@@ -1144,9 +1150,16 @@ export function installPowerlineWelcomeHeaderPatch(
     this: unknown,
     options?: unknown,
   ): void {
-    detachPowerlineWelcomeComponent(this as WelcomeHeaderMode);
-    state.originalShowLoadedResources.call(this, options);
-    appendPowerlineWelcomeHeader(this);
+    const interactiveMode = this as WelcomeHeaderMode;
+    const registration = interactiveMode[POWERLINE_WELCOME_HEADER_COMPONENT];
+    const originalOptions = options !== null && typeof options === "object" ? options : {};
+
+    detachPowerlineWelcomeComponent(interactiveMode);
+    state.originalShowLoadedResources.call(
+      this,
+      registration?.forceResources ? { ...originalOptions, force: true } : options,
+    );
+    appendPowerlineWelcomeHeader(interactiveMode);
   };
 }
 
@@ -1221,7 +1234,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   let tuiRef: any = null;
   let restoreFooterStatusRepaintHook: (() => void) | null = null;
   let shortcutInputUnsubscribe: (() => void) | null = null;
-  let welcomePlacement: "loadedResources" | "aboveEditor" | null = null;
+  let welcomePlacement: "loadedResources" | null = null;
   let welcomeRequest: AbortController | null = null;
   let welcomeTimer: ReturnType<typeof setTimeout> | null = null;
   let lastUserPrompt = "";
@@ -1264,11 +1277,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   const sessionBranchCache = new SessionBranchCache();
   const tokenStatsCache = new SessionTokenStatsCache();
   const coreContextUsageCache = new CoreContextUsageCache();
-  const welcomeDismissScheduler = createWelcomeDismissScheduler({
-    dismiss: (ctx: unknown) => dismissWelcome(ctx),
-    getGeneration: () => sessionGeneration,
-    isEnabled: () => enabled,
-  });
 
   const statusRenderScheduler = createRenderScheduler(() => {
     const msSinceInput = Date.now() - lastEditorInputAt;
@@ -1773,11 +1781,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     if (enabled && ctx.hasUI) {
       setupCustomEditor(ctx);
       if (shouldShowStartupWelcome(event.reason, config.welcome)) {
-        if (settings.quietStartup === true) {
-          setupWelcomeEditorBanner(ctx);
-        } else {
-          setupWelcomeResourcesBanner(ctx);
-        }
+        setupWelcomeResourcesBanner(ctx, settings.quietStartup !== true);
       } else {
         dismissWelcome(ctx);
       }
@@ -1880,6 +1884,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   // Generate themed working message before agent starts (has access to user's prompt)
   pi.on("before_agent_start", async (event, ctx) => {
+    cancelPendingWelcome();
     finishPendingQueueDelivery(event.prompt, ctx);
     lastUserPrompt = event.prompt;
     if (ctx.hasUI) {
@@ -1888,12 +1893,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   });
 
   // Track streaming state (footer only shows status during streaming).
-  // Quiet startup uses a transient editor banner; normal startup stays in the transcript.
   pi.on("agent_start", async (_event, ctx) => {
     isStreaming = true;
     liveAssistantUsage = null;
     onVibeAgentStart();
-    dismissTransientWelcome(ctx);
     currentCtx = ctx;
   });
 
@@ -1973,9 +1976,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     schedulePostCompactionDelivery();
   });
 
-  // Also dismiss the transient quiet-startup banner on tool calls.
+  // Refresh vibe on tool calls if rate limits allow it.
   pi.on("tool_call", async (event, ctx) => {
-    dismissTransientWelcome(ctx);
     if (ctx.hasUI) {
       // Extract recent agent context from session for richer vibe generation
       const agentContext = getRecentAgentContext(ctx);
@@ -2009,34 +2011,21 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     return undefined;
   }
 
-  function dismissWelcome(ctx: any) {
-    welcomeDismissScheduler.cancel();
+  function cancelPendingWelcome(): void {
     welcomeRequest?.abort();
     welcomeRequest = null;
     if (welcomeTimer) clearTimeout(welcomeTimer);
     welcomeTimer = null;
+  }
 
+  function dismissWelcome(ctx: any) {
+    cancelPendingWelcome();
     const activePlacement = welcomePlacement;
     welcomePlacement = null;
     if (activePlacement === "loadedResources") {
       ctx.ui.setHeader(undefined);
-    } else if (activePlacement === "aboveEditor") {
-      ctx.ui.setWidget(WELCOME_WIDGET_KEY, undefined);
     }
   }
-
-  function dismissTransientWelcome(ctx: any) {
-    if (welcomePlacement === "aboveEditor") dismissWelcome(ctx);
-  }
-
-  function scheduleDismissWelcome(ctx: any) {
-    if (welcomeRequest) {
-      dismissWelcome(ctx);
-      return;
-    }
-    if (welcomePlacement === "aboveEditor") welcomeDismissScheduler.schedule(ctx);
-  }
-
   function copyTextToClipboard(ctx: any, text: string, successMessage?: string): void {
     copyToClipboard(text);
     if (successMessage) {
@@ -2261,7 +2250,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           ctx.ui.setWidget("powerline-queue-preview", undefined);
           ctx.ui.setWidget("powerline-last-prompt", undefined);
           ctx.ui.setWidget("powerline-session-title", undefined);
-          ctx.ui.setWidget(WELCOME_WIDGET_KEY, undefined);
           footerDataRef = null;
           tuiRef = null;
           currentEditor = null;
@@ -2733,13 +2721,13 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         if (!enabled || !ctx.hasUI || tuiRef?.hasOverlay?.()) {
           return undefined;
         }
+        cancelPendingWelcome();
         const powerlineShortcutAction = getPowerlineShortcutAction(data);
         if (!powerlineShortcutAction) {
           return undefined;
         }
 
         runPowerlineShortcut(ctx, powerlineShortcutAction);
-        scheduleDismissWelcome(ctx);
         tuiRef?.requestRender();
         return { consume: true };
       })
@@ -2810,8 +2798,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         : baseHandleInput;
       const handlePowerlineEditorInput = (data: string) => {
         lastEditorInputAt = Date.now();
-        scheduleDismissWelcome(ctx);
-
+        cancelPendingWelcome();
         const isSubmit = keybindings.matches(data, "tui.input.submit") && !keybindings.matches(data, "tui.input.newLine");
         const isFollowUpSubmit = keybindings.matches(data, "app.message.followUp");
         if (!powerlineCompacting && isSubmit && typeof ctx.compact === "function") {
@@ -3032,7 +3019,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     return new WelcomeHeader(modelName, providerName, recentSessions, loadedCounts, initialContextTokens, options);
   }
 
-  function setupWelcomeBanner(ctx: any, placement: "loadedResources" | "aboveEditor"): void {
+  function setupWelcomeResourcesBanner(ctx: any, forceResources: boolean): void {
     const request = beginWelcomeRequest(ctx);
     const generation = sessionGeneration;
     // Keep optional archive discovery off the session_start completion path.
@@ -3043,21 +3030,14 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         const recentSessions = await getRecentSessions(3, request.signal);
         if (!canShowWelcome(ctx, request, generation)) return;
 
-        if (placement === "loadedResources") {
-          ctx.ui.setHeader(markPowerlineWelcomeHeaderFactory(
-            () => createWelcomeBanner(ctx, recentSessions),
-            () => {
-              if (welcomePlacement === "loadedResources") welcomePlacement = null;
-            },
-          ));
-        } else {
-          ctx.ui.setWidget(
-            WELCOME_WIDGET_KEY,
-            () => createWelcomeBanner(ctx, recentSessions, { trailingSpacing: false }),
-            { placement: "aboveEditor" },
-          );
-        }
-        welcomePlacement = placement;
+        ctx.ui.setHeader(markPowerlineWelcomeHeaderFactory(
+          () => createWelcomeBanner(ctx, recentSessions),
+          () => {
+            if (welcomePlacement === "loadedResources") welcomePlacement = null;
+          },
+          forceResources,
+        ));
+        welcomePlacement = "loadedResources";
         if (welcomeRequest === request) welcomeRequest = null;
       } catch (error: unknown) {
         if (!request.signal.aborted || error !== request.signal.reason) {
@@ -3066,14 +3046,4 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       }
     }, 0);
   }
-
-  function setupWelcomeResourcesBanner(ctx: any): void {
-    setupWelcomeBanner(ctx, "loadedResources");
-  }
-
-  function setupWelcomeEditorBanner(ctx: any): void {
-    setupWelcomeBanner(ctx, "aboveEditor");
-  }
-
-
 }
