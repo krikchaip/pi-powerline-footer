@@ -1,9 +1,10 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { open, opendir, realpath, stat } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { VERSION as PACKAGE_VERSION, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { truncateToWidth as tuiTruncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { ansi, fgOnly, getFgAnsiCode } from "./colors.ts";
+import { fgOnly } from "./colors.ts";
 import { getAgentPath, getLegacyPiPath, getHomeDir } from "./paths.ts";
 
 export interface RecentSession {
@@ -29,6 +30,7 @@ function formatTokens(tokens: number): string {
 // Shared rendering utilities
 // ═══════════════════════════════════════════════════════════════════════════
 
+// The established Powerline logo shape. Each visible cell receives the animated gradient.
 const PI_LOGO = [
   "██████████    ",
   "████  ████    ",
@@ -36,42 +38,118 @@ const PI_LOGO = [
   "████████  ████",
   "████      ████",
   "████      ████",
-];
+] as const;
 
-const GRADIENT_COLORS = [
-  "\x1b[38;5;199m",
-  "\x1b[38;5;171m",
-  "\x1b[38;5;135m",
-  "\x1b[38;5;99m",
-  "\x1b[38;5;75m",
-  "\x1b[38;5;51m",
+const GRADIENT_STOPS: ReadonlyArray<readonly [number, number, number]> = [
+  [255, 92, 200], [200, 110, 255], [120, 130, 255], [60, 200, 255], [120, 255, 220],
 ];
+const GRADIENT_RAMP_256 = [199, 171, 135, 99, 75, 51, 87];
+const SHINE_HALF_WIDTH = 0.18;
+const INTRO_MS = 3000;
+const INTRO_TICK_MS = 33;
+const INTRO_SWEEPS = 2.5;
+const INTRO_SHINE_TRAVERSALS = 1;
+const TRUE_COLOR = process.env.COLORTERM === "truecolor" || process.env.COLORTERM === "24bit";
 const SESSION_HEADER_READ_BYTES = 8192;
 
-function bold(text: string): string {
-  return `\x1b[1m${text}\x1b[22m`;
-}
-
-function dim(text: string): string {
-  return getFgAnsiCode("sep") + text + ansi.reset;
-}
-
-function gradientLine(line: string): string {
-  const reset = ansi.reset;
-  let result = "";
-  let colorIdx = 0;
-  const step = Math.max(1, Math.floor(line.length / GRADIENT_COLORS.length));
-
-  for (let i = 0; i < line.length; i++) {
-    if (i > 0 && i % step === 0 && colorIdx < GRADIENT_COLORS.length - 1) colorIdx++;
-    const char = line[i];
-    if (char !== " ") {
-      result += GRADIENT_COLORS[colorIdx] + char + reset;
-    } else {
-      result += char;
+/** Prefer the running Pi CLI's VERSION over this extension's development dependency. */
+function getRuntimeVersion(): string {
+  const cliEntry = process.argv[1];
+  if (!cliEntry) return PACKAGE_VERSION;
+  try {
+    const packageRoot = dirname(dirname(realpathSync(cliEntry)));
+    const packageJson = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
+      name?: unknown;
+      version?: unknown;
+    };
+    if (packageJson.name === "@earendil-works/pi-coding-agent" && typeof packageJson.version === "string") {
+      return packageJson.version;
     }
+  } catch {
+    // Tests and embedded Pi runtimes do not always expose a CLI entry path.
   }
-  return result;
+  return PACKAGE_VERSION;
+}
+
+const PI_VERSION = getRuntimeVersion();
+
+const PROVIDER_TONE: ThemeColor = "dim";
+const BULLET_TONE: ThemeColor = "dim";
+const SECONDARY_TONE: ThemeColor = "muted";
+const BORDER_TONE: ThemeColor = "border"; // Selected C2: active theme border.
+const SECTION_TONE: ThemeColor = "borderAccent";
+
+type WelcomeTheme = Pick<Theme, "fg" | "bold">;
+type ShineConfig = { strength: number; pos: number };
+
+const PLAIN_WELCOME_THEME: WelcomeTheme = {
+  fg: (_color, text) => text,
+  bold: (text) => text,
+};
+
+function getRuntimeTheme(): WelcomeTheme {
+  const theme = Reflect.get(globalThis, Symbol.for("@earendil-works/pi-coding-agent:theme"));
+  if (
+    typeof theme === "object"
+    && theme !== null
+    && typeof Reflect.get(theme, "fg") === "function"
+    && typeof Reflect.get(theme, "bold") === "function"
+  ) {
+    return theme as WelcomeTheme;
+  }
+  return PLAIN_WELCOME_THEME;
+}
+
+function gradientEscape(t: number, shine?: ShineConfig): string {
+  const strength = shine?.strength ?? 0;
+  const position = shine?.pos ?? 0;
+  if (TRUE_COLOR) {
+    const segment = t * (GRADIENT_STOPS.length - 1);
+    const index = Math.min(GRADIENT_STOPS.length - 2, Math.floor(segment));
+    const fraction = segment - index;
+    const from = GRADIENT_STOPS[index]!;
+    const to = GRADIENT_STOPS[index + 1]!;
+    let r = from[0] + (to[0] - from[0]) * fraction;
+    let g = from[1] + (to[1] - from[1]) * fraction;
+    let b = from[2] + (to[2] - from[2]) * fraction;
+    const intensity = Math.max(0, 1 - Math.abs(t - position) / SHINE_HALF_WIDTH) * strength;
+    r += (255 - r) * intensity;
+    g += (255 - g) * intensity;
+    b += (255 - b) * intensity;
+    return `\x1b[38;2;${Math.round(r)};${Math.round(g)};${Math.round(b)}m`;
+  }
+  let index = Math.min(GRADIENT_RAMP_256.length - 1, Math.max(0, Math.floor(t * (GRADIENT_RAMP_256.length - 1) + 0.5)));
+  if (Math.max(0, 1 - Math.abs(t - position) / SHINE_HALF_WIDTH) * strength > 0.5) index = GRADIENT_RAMP_256.length - 1;
+  return `\x1b[38;5;${GRADIENT_RAMP_256[index]}m`;
+}
+
+function gradientLogo(phase = 0, shine?: ShineConfig): string[] {
+  const rows = PI_LOGO.length;
+  const columns = Math.max(...PI_LOGO.map((line) => line.length));
+  const span = Math.max(1, columns + rows - 1);
+  return PI_LOGO.map((line, y) => {
+    let output = "";
+    for (let x = 0; x < line.length; x++) {
+      const cell = line[x]!;
+      if (cell === " ") {
+        output += cell;
+        continue;
+      }
+      const base = (x + (rows - 1 - y)) / span;
+      const t = ((base + phase) % 1 + 1) % 1;
+      output += gradientEscape(t, shine) + cell + "\x1b[0m";
+    }
+    return output;
+  });
+}
+
+const REST_LOGO = gradientLogo();
+
+function introLogoFrame(progress: number): string[] {
+  const eased = 1 - (1 - progress) ** 3;
+  const phase = (((1 - eased) * INTRO_SWEEPS) % 1 + 1) % 1;
+  const shinePos = ((progress * INTRO_SHINE_TRAVERSALS) % 1 + 1) % 1;
+  return gradientLogo(phase, { strength: (1 - eased) ** 1.5, pos: shinePos });
 }
 
 function centerText(text: string, width: number): string {
@@ -97,56 +175,32 @@ interface WelcomeData {
   initialContextTokens: number | null;
 }
 
-function buildLeftColumn(data: WelcomeData, colWidth: number): string[] {
-  const logoColored = PI_LOGO.map((line) => gradientLine(line));
-  
+function buildLeftColumn(data: WelcomeData, colWidth: number, theme: WelcomeTheme, logo: readonly string[]): string[] {
   return [
     "",
-    centerText(bold("Welcome back!"), colWidth),
+    centerText(theme.bold("Welcome back!"), colWidth),
     "",
-    ...logoColored.map((l) => centerText(l, colWidth)),
+    ...logo.map((line) => centerText(line, colWidth)),
     "",
     centerText(fgOnly("model", data.modelName), colWidth),
-    centerText(dim(data.providerName), colWidth),
+    centerText(theme.fg(PROVIDER_TONE, data.providerName), colWidth),
   ];
 }
 
-function buildRightColumn(data: WelcomeData, colWidth: number): string[] {
-  const hChar = "─";
-  const separator = ` ${dim(hChar.repeat(colWidth - 2))}`;
-  
-  // Session lines
-  const sessionLines: string[] = [];
-  if (data.recentSessions.length === 0) {
-    sessionLines.push(` ${dim("No recent sessions")}`);
-  } else {
-    for (const session of data.recentSessions.slice(0, 3)) {
-      sessionLines.push(
-        ` ${dim("• ")}${fgOnly("path", session.name)}${dim(` (${session.timeAgo})`)}`,
-      );
-    }
-  }
-  
-  // Loaded counts lines
+function buildRightColumn(data: WelcomeData, colWidth: number, theme: WelcomeTheme): string[] {
+  const separator = ` ${theme.fg(BORDER_TONE, "─".repeat(colWidth - 2))}`;
+  const bullet = theme.fg(BULLET_TONE, "- ");
+  const countLine = (count: number, label: string) => ` ${bullet}${theme.fg(SECONDARY_TONE, `${count}`)} ${label}`;
   const countLines: string[] = [];
   const { contextFiles, extensions, skills, promptTemplates } = data.loadedCounts;
-  const itemPrefix = dim("- ");
-  
+
   if (contextFiles > 0 || extensions > 0 || skills > 0 || promptTemplates > 0) {
-    if (contextFiles > 0) {
-      countLines.push(` ${itemPrefix}${fgOnly("gitClean", `${contextFiles}`)} context file${contextFiles !== 1 ? "s" : ""}`);
-    }
-    if (extensions > 0) {
-      countLines.push(` ${itemPrefix}${fgOnly("gitClean", `${extensions}`)} extension${extensions !== 1 ? "s" : ""}`);
-    }
-    if (skills > 0) {
-      countLines.push(` ${itemPrefix}${fgOnly("gitClean", `${skills}`)} skill${skills !== 1 ? "s" : ""}`);
-    }
-    if (promptTemplates > 0) {
-      countLines.push(` ${itemPrefix}${fgOnly("gitClean", `${promptTemplates}`)} prompt template${promptTemplates !== 1 ? "s" : ""}`);
-    }
+    if (contextFiles > 0) countLines.push(countLine(contextFiles, `context file${contextFiles !== 1 ? "s" : ""}`));
+    if (extensions > 0) countLines.push(countLine(extensions, `extension${extensions !== 1 ? "s" : ""}`));
+    if (skills > 0) countLines.push(countLine(skills, `skill${skills !== 1 ? "s" : ""}`));
+    if (promptTemplates > 0) countLines.push(countLine(promptTemplates, `prompt template${promptTemplates !== 1 ? "s" : ""}`));
   } else {
-    countLines.push(` ${dim("No extensions loaded")}`);
+    countLines.push(` ${theme.fg(PROVIDER_TONE, "No extensions loaded")}`);
   }
 
   if (
@@ -154,76 +208,61 @@ function buildRightColumn(data: WelcomeData, colWidth: number): string[] {
     && Number.isFinite(data.initialContextTokens)
     && data.initialContextTokens > 0
   ) {
-    countLines.push(` ${itemPrefix}${fgOnly("gitClean", `≈ ${formatTokens(data.initialContextTokens)}`)} initial prompt tokens`);
+    countLines.push(` ${bullet}${theme.fg(SECONDARY_TONE, `≈ ${formatTokens(data.initialContextTokens)}`)} initial prompt tokens`);
   }
-  
+
+  const sessionLines = data.recentSessions.length === 0
+    ? [` ${theme.fg(PROVIDER_TONE, "No recent sessions")}`]
+    : data.recentSessions.slice(0, 3).map((session) => (
+      ` ${theme.fg(BULLET_TONE, "• ")}${fgOnly("path", session.name)}${theme.fg(SECONDARY_TONE, ` (${session.timeAgo})`)}`
+    ));
+
   return [
-    ` ${bold(fgOnly("accent", "Tips"))}`,
-    ` ${dim("/")} for commands`,
-    ` ${dim("!")} to run bash`,
-    ` ${dim("ctrl+t")} cycle thinking`,
+    ` ${theme.bold(theme.fg(SECTION_TONE, "Tips"))}`,
+    ` ${theme.fg(SECONDARY_TONE, "/")} for commands`,
+    ` ${theme.fg(SECONDARY_TONE, "!")} to run bash`,
+    ` ${theme.fg(SECONDARY_TONE, "ctrl+t")} cycle thinking`,
     separator,
-    ` ${bold(fgOnly("accent", "Loaded"))}`,
+    ` ${theme.bold(theme.fg(SECTION_TONE, "Loaded"))}`,
     ...countLines,
     separator,
-    ` ${bold(fgOnly("accent", "Recent sessions"))}`,
+    ` ${theme.bold(theme.fg(SECTION_TONE, "Recent sessions"))}`,
     ...sessionLines,
     "",
   ];
 }
 
 function renderWelcomeBox(
-  data: WelcomeData, 
-  termWidth: number, 
-  bottomLine: string,
+  data: WelcomeData,
+  termWidth: number,
+  theme: WelcomeTheme,
+  logo: readonly string[],
 ): string[] {
-  // Minimum width for two-column layout: leftCol(26) + separator(3) + minRightCol(15) = 44
-  const minLayoutWidth = 44;
-  
-  // If terminal is too narrow for the layout, return empty (skip welcome box)
-  if (termWidth < minLayoutWidth) {
-    return [];
-  }
-  
-  const minWidth = 76;
-  const maxWidth = 96;
-  // Clamp to termWidth to prevent crash on narrow terminals
-  const boxWidth = Math.min(termWidth, Math.max(minWidth, Math.min(termWidth - 2, maxWidth)));
+  // Minimum width for two-column layout: leftCol(26) + separator(3) + minRightCol(15) = 44.
+  if (termWidth < 44) return [];
+
+  const boxWidth = Math.min(termWidth, Math.max(76, Math.min(termWidth - 2, 96)));
   const leftCol = 26;
-  const rightCol = Math.max(1, boxWidth - leftCol - 3); // Ensure rightCol is at least 1
-  
-  const hChar = "─";
-  const v = dim("│");
-  const tl = dim("╭");
-  const tr = dim("╮");
-  const bl = dim("╰");
-  const br = dim("╯");
-  
-  const leftLines = buildLeftColumn(data, leftCol);
-  const rightLines = buildRightColumn(data, rightCol);
-  
+  const rightCol = Math.max(1, boxWidth - leftCol - 3);
+  const border = (glyph: string) => theme.fg(BORDER_TONE, glyph);
+  const leftLines = buildLeftColumn(data, leftCol, theme, logo);
+  const rightLines = buildRightColumn(data, rightCol, theme);
   const lines: string[] = [];
-  
-  // Top border with title
-  const title = " pi agent ";
-  const titlePrefix = dim(hChar.repeat(3));
-  const titleStyled = titlePrefix + fgOnly("model", title);
-  const titleVisLen = 3 + visibleWidth(title);
-  const afterTitle = boxWidth - 2 - titleVisLen;
-  const afterTitleText = afterTitle > 0 ? dim(hChar.repeat(afterTitle)) : "";
-  lines.push(tl + titleStyled + afterTitleText + tr);
-  
-  // Content rows
+
+  // Use fewer rule cells for the longer versioned title. The right corner stays fixed.
+  const titleText = ` Pi v${PI_VERSION} `;
+  const title = theme.bold(theme.fg("accent", "Pi")) + theme.fg("muted", ` v${PI_VERSION}`);
+  const afterTitle = boxWidth - 2 - 3 - visibleWidth(titleText);
+  lines.push(border("╭") + border("─".repeat(3)) + ` ${title} ` + border("─".repeat(Math.max(0, afterTitle))) + border("╮"));
+
   const maxRows = Math.max(leftLines.length, rightLines.length);
   for (let i = 0; i < maxRows; i++) {
     const left = fitToWidth(leftLines[i] ?? "", leftCol);
     const right = fitToWidth(rightLines[i] ?? "", rightCol);
-    lines.push(v + left + v + right + v);
+    lines.push(border("│") + left + border("│") + right + border("│"));
   }
-  
-  // Bottom border
-  lines.push(bl + bottomLine + br);
-  
+
+  lines.push(border("╰") + border("─".repeat(leftCol)) + border("┴") + border("─".repeat(rightCol)) + border("╯"));
   return lines;
 }
 
@@ -231,10 +270,12 @@ function renderWelcomeBox(
 // Welcome Components
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Welcome banner used below Pi's startup heading or above the editor. */
+/** Persistent welcome banner rendered after Pi's loaded-resource sections. */
 export class WelcomeHeader implements Component {
-  private data: WelcomeData;
-  private trailingSpacing: boolean;
+  private readonly data: WelcomeData;
+  private readonly trailingSpacing: boolean;
+  private startedAt: number | undefined;
+  private introTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     modelName: string,
@@ -248,30 +289,31 @@ export class WelcomeHeader implements Component {
     this.trailingSpacing = options.trailingSpacing ?? true;
   }
 
+  /** Start the one-shot logo animation after Pi attaches this component to its TUI. */
+  setRequestRender(requestRender: () => void): void {
+    if (this.introTimer || this.startedAt !== undefined) return;
+    this.startedAt = performance.now();
+    this.introTimer = setInterval(() => {
+      if (performance.now() - this.startedAt! >= INTRO_MS) {
+        clearInterval(this.introTimer);
+        this.introTimer = undefined;
+      }
+      requestRender();
+    }, INTRO_TICK_MS);
+  }
+
+  dispose(): void {
+    if (this.introTimer) clearInterval(this.introTimer);
+    this.introTimer = undefined;
+  }
+
   invalidate(): void {}
 
   render(termWidth: number): string[] {
-    // Minimum width for two-column layout (must match renderWelcomeBox)
-    const minLayoutWidth = 44;
-    if (termWidth < minLayoutWidth) {
-      return [];
-    }
-    
-    const minWidth = 76;
-    const maxWidth = 96;
-    // Clamp to termWidth to prevent crash on narrow terminals
-    const boxWidth = Math.min(termWidth, Math.max(minWidth, Math.min(termWidth - 2, maxWidth)));
-    const hChar = "─";
-    
-    // Bottom line with column separator (leftCol=26, rightCol=boxWidth-29)
-    const leftCol = 26;
-    const rightCol = Math.max(1, boxWidth - leftCol - 3);
-    const bottomLine = dim(hChar.repeat(leftCol)) + dim("┴") + dim(hChar.repeat(rightCol));
-    
-    const lines = renderWelcomeBox(this.data, termWidth, bottomLine);
-    if (this.trailingSpacing && lines.length > 0) {
-      lines.push("");
-    }
+    const elapsed = this.startedAt === undefined ? INTRO_MS : performance.now() - this.startedAt;
+    const logo = elapsed < INTRO_MS ? introLogoFrame(elapsed / INTRO_MS) : REST_LOGO;
+    const lines = renderWelcomeBox(this.data, termWidth, getRuntimeTheme(), logo);
+    if (this.trailingSpacing && lines.length > 0) lines.push("");
     return lines;
   }
 }

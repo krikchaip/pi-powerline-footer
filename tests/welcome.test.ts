@@ -6,6 +6,8 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
+import { VERSION } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { discoverLoadedCounts, getRecentSessions, WelcomeHeader } from "../welcome.ts";
 
 const indexSource = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
@@ -110,6 +112,63 @@ test("welcome renders the initial system prompt token estimate", () => {
   assert.doesNotMatch(indexSource, /function setupWelcomeEditorBanner/);
   assert.doesNotMatch(indexSource, /function setupWelcomeOverlay/);
   assert.doesNotMatch(indexSource, /new WelcomeComponent\(/);
+});
+
+test("welcome applies the selected D tones and runtime version title", () => {
+  const themeKey = Symbol.for("@earendil-works/pi-coding-agent:theme");
+  const previousTheme = Reflect.get(globalThis, themeKey);
+  const toneCode: Record<string, number> = {
+    dim: 101,
+    muted: 102,
+    border: 103,
+    borderAccent: 104,
+    accent: 105,
+  };
+  Reflect.set(globalThis, themeKey, {
+    fg(color: string, text: string) {
+      return `\x1b[38;5;${toneCode[color] ?? 106}m${text}\x1b[0m`;
+    },
+    bold(text: string) {
+      return `\x1b[1m${text}\x1b[22m`;
+    },
+  });
+
+  try {
+    const output = new WelcomeHeader(
+      "Model",
+      "Provider",
+      [{ name: "project", timeAgo: "2m ago" }],
+      { contextFiles: 2, extensions: 29, skills: 1, promptTemplates: 0 },
+      4200,
+    ).render(96).join("\n");
+    const plainOutput = output.replace(/\x1b\[[0-9;]*m/g, "");
+
+    assert.match(plainOutput, new RegExp(`Pi v${VERSION.replaceAll(".", "\\.")}`));
+    assert.match(output, /\x1b\[38;5;101mProvider/);
+    assert.match(output, /\x1b\[38;5;101m- /);
+    assert.match(output, /\x1b\[38;5;101m• /);
+    for (const value of ["2", "29", "1", "≈ 4.2k", "/", "!", " (2m ago)"]) {
+      assert.ok(output.includes(`\x1b[38;5;102m${value}`));
+    }
+    assert.match(output, /\x1b\[38;5;102mctrl\+t/);
+    assert.match(output, /\x1b\[38;5;103m╭/);
+  } finally {
+    if (previousTheme === undefined) Reflect.deleteProperty(globalThis, themeKey);
+    else Reflect.set(globalThis, themeKey, previousTheme);
+  }
+});
+
+test("welcome keeps its versioned top-right border aligned", () => {
+  const lines = new WelcomeHeader(
+    "Model",
+    "Provider",
+    [{ name: "project", timeAgo: "2m ago" }],
+    { contextFiles: 2, extensions: 29, skills: 1, promptTemplates: 0 },
+    4200,
+  ).render(96).filter((line) => line !== "");
+
+  assert.equal(lines[0]?.replace(/\x1b\[[0-9;]*m/g, "").endsWith("╮"), true);
+  for (const line of lines) assert.equal(visibleWidth(line), 94);
 });
 
 test("getRecentSessions prefers cwd basename from session header", async () => {

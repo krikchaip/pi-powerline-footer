@@ -1032,12 +1032,14 @@ type WelcomeHeaderPrototype = {
 
 type WelcomeHeaderComponent = {
   dispose?: () => void;
+  setRequestRender?: (requestRender: () => void) => void;
 };
 
 type WelcomeHeaderRegistration = {
   factory: () => WelcomeHeaderComponent;
   forceResources: boolean;
   component?: WelcomeHeaderComponent;
+  startedComponents: WeakSet<WelcomeHeaderComponent>;
   onRemoved?: () => void;
 };
 
@@ -1067,16 +1069,20 @@ function markPowerlineWelcomeHeaderFactory<T extends Function>(
   return factory;
 }
 
-function detachPowerlineWelcomeComponent(mode: WelcomeHeaderMode): void {
+function detachPowerlineWelcomeComponent(
+  mode: WelcomeHeaderMode,
+  dispose = true,
+): WelcomeHeaderComponent | undefined {
   const registration = mode[POWERLINE_WELCOME_HEADER_COMPONENT];
-  if (registration === undefined || registration.component === undefined) return;
+  if (registration === undefined || registration.component === undefined) return undefined;
   const component = registration.component;
 
   const children = mode.loadedResourcesContainer?.children;
   const index = children?.indexOf(component) ?? -1;
   if (index >= 0) children?.splice(index, 1);
-  component.dispose?.();
+  if (dispose) component.dispose?.();
   registration.component = undefined;
+  return component;
 }
 
 function removePowerlineWelcomeHeader(mode: unknown): void {
@@ -1089,17 +1095,26 @@ function removePowerlineWelcomeHeader(mode: unknown): void {
   registration.onRemoved?.();
 }
 
-function appendPowerlineWelcomeHeader(mode: unknown): void {
+function appendPowerlineWelcomeHeader(
+  mode: unknown,
+  component?: WelcomeHeaderComponent,
+): void {
   const interactiveMode = mode as WelcomeHeaderMode;
   const registration = interactiveMode[POWERLINE_WELCOME_HEADER_COMPONENT];
   const container = interactiveMode.loadedResourcesContainer;
   if (registration === undefined || container === undefined) return;
 
   detachPowerlineWelcomeComponent(interactiveMode);
-  const component = registration.factory();
-  if (container.addChild) container.addChild(component);
-  else container.children.push(component);
-  registration.component = component;
+  const nextComponent = component ?? registration.factory();
+  if (container.addChild) container.addChild(nextComponent);
+  else container.children.push(nextComponent);
+  registration.component = nextComponent;
+  if (!registration.startedComponents.has(nextComponent)) {
+    registration.startedComponents.add(nextComponent);
+    nextComponent.setRequestRender?.(() => {
+      interactiveMode.ui?.requestRender?.();
+    });
+  }
 }
 
 /** Render Powerline's welcome banner after Pi's native loaded-resource sections. */
@@ -1141,6 +1156,7 @@ export function installPowerlineWelcomeHeaderPatch(
     interactiveMode[POWERLINE_WELCOME_HEADER_COMPONENT] = {
       factory,
       forceResources: factory[POWERLINE_WELCOME_FORCE_RESOURCES] === true,
+      startedComponents: new WeakSet(),
       onRemoved: typeof onRemoved === "function" ? onRemoved as () => void : undefined,
     };
     appendPowerlineWelcomeHeader(interactiveMode);
@@ -1154,12 +1170,14 @@ export function installPowerlineWelcomeHeaderPatch(
     const registration = interactiveMode[POWERLINE_WELCOME_HEADER_COMPONENT];
     const originalOptions = options !== null && typeof options === "object" ? options : {};
 
-    detachPowerlineWelcomeComponent(interactiveMode);
+    // Pi rebuilds only native resource children. Preserve the banner instance so
+    // its one-shot logo animation remains active during that rebuild.
+    const banner = detachPowerlineWelcomeComponent(interactiveMode, false);
     state.originalShowLoadedResources.call(
       this,
       registration?.forceResources ? { ...originalOptions, force: true } : options,
     );
-    appendPowerlineWelcomeHeader(interactiveMode);
+    appendPowerlineWelcomeHeader(interactiveMode, banner);
   };
 }
 
