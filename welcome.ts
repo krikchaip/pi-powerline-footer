@@ -27,6 +27,7 @@ export interface WelcomeModelAppearance {
 }
 
 export interface WelcomeHeaderOptions {
+  leadingSpacing?: boolean;
   trailingSpacing?: boolean;
   modelAppearance?: WelcomeModelAppearance;
 }
@@ -293,6 +294,7 @@ function renderWelcomeBox(
 /** Persistent welcome banner rendered after Pi's loaded-resource sections. */
 export class WelcomeHeader implements Component {
   private readonly data: WelcomeData;
+  private readonly leadingSpacing: boolean;
   private readonly trailingSpacing: boolean;
   private startedAt: number | undefined;
   private introTimer: ReturnType<typeof setInterval> | undefined;
@@ -313,6 +315,7 @@ export class WelcomeHeader implements Component {
       initialContextTokens,
       modelAppearance: options.modelAppearance ?? {},
     };
+    this.leadingSpacing = options.leadingSpacing ?? false;
     this.trailingSpacing = options.trailingSpacing ?? true;
   }
 
@@ -340,6 +343,7 @@ export class WelcomeHeader implements Component {
     const elapsed = this.startedAt === undefined ? INTRO_MS : performance.now() - this.startedAt;
     const logo = elapsed < INTRO_MS ? introLogoFrame(elapsed / INTRO_MS) : REST_LOGO;
     const lines = renderWelcomeBox(this.data, termWidth, getRuntimeTheme(), logo);
+    if (this.leadingSpacing && lines.length > 0) lines.unshift(" ");
     if (this.trailingSpacing && lines.length > 0) lines.push("");
     return lines;
   }

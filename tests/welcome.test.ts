@@ -115,6 +115,29 @@ test("welcome renders the initial system prompt token estimate", () => {
   assert.doesNotMatch(indexSource, /new WelcomeComponent\(/);
 });
 
+test("quiet welcome adds one blank row above the banner", () => {
+  const rendered = new WelcomeHeader(
+    "Model",
+    "Provider",
+    [],
+    { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 },
+    null,
+    { leadingSpacing: true },
+  ).render(96);
+
+  const verbose = new WelcomeHeader(
+    "Model",
+    "Provider",
+    [],
+    { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 },
+  ).render(96);
+
+  assert.equal(rendered[0], " ");
+  assert.notEqual(rendered[1], "");
+  assert.notEqual(verbose[0], " ");
+  assert.match(indexSource, /createWelcomeBanner\(ctx, recentSessions, \{ leadingSpacing: !forceResources \}\)/);
+});
+
 test("welcome applies the selected D tones and runtime version title", () => {
   const themeKey = Symbol.for("@earendil-works/pi-coding-agent:theme");
   const previousTheme = Reflect.get(globalThis, themeKey);
