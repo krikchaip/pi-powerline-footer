@@ -7,7 +7,7 @@ export interface ThinkingWaveLayout {
 }
 
 /**
- * Updates only the ANSI colors of a cached think:max segment.
+ * Updates only the ANSI colors of cached max-thinking segments.
  *
  * The layout stays cached, so this is safe to call on every animation frame,
  * including while the editor is handling input.
@@ -19,9 +19,15 @@ export function refreshMaxThinkingWave<T extends ThinkingWaveLayout>(
 ): T {
   if (cachedFrame === null || cachedFrame === currentFrame) return layout;
 
-  const cachedWave = maxEffortWave("think:max", cachedFrame);
-  const currentWave = maxEffortWave("think:max", currentFrame);
-  const replaceWave = (content: string) => content.replaceAll(cachedWave, currentWave);
+  const replaceWave = (content: string) => {
+    for (const text of ["think:max", "max", "(max)", "[max]"]) {
+      content = content.replaceAll(
+        maxEffortWave(text, cachedFrame),
+        maxEffortWave(text, currentFrame),
+      );
+    }
+    return content;
+  };
 
   return {
     ...layout,

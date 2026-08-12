@@ -81,6 +81,9 @@ You can also set it in the agent settings file (`~/.pi/agent/settings.json` by d
   "powerline": {
     "preset": "default",
     "placement": "below",
+    "modelThinking": {
+      "wrapper": "brackets"
+    },
     "sessionTitle": {
       "enabled": true,
       "alignment": "right"
@@ -91,7 +94,7 @@ You can also set it in the agent settings file (`~/.pi/agent/settings.json` by d
 }
 ```
 
-`"placement"` accepts `"above"` (default) or `"below"`. It moves only the primary powerline row. Set `"sessionTitle": { "enabled": true }` to show a named session in a standalone row opposite the primary row. `"sessionTitle": true` is shorthand. The feature is disabled by default and stays hidden until the session has a name. `"alignment"` accepts `"left"` or `"right"`; omitted alignment defaults to left. Set `"showLastPrompt": false` inside `powerline` to hide the `↳` reminder of your most recent prompt. A legacy top-level `"showLastPrompt": false` is also honored. Set `"welcome": false` to skip the startup welcome while leaving powerline enabled.
+`"placement"` accepts `"above"` (default) or `"below"`. It moves only the primary powerline row. `"modelThinking.wrapper"` accepts `"none"`, `"parentheses"`, or `"brackets"` (default). It controls `model_thinking` only and keeps its wrapper in the thinking-level style. Set `"sessionTitle": { "enabled": true }` to show a named session in a standalone row opposite the primary row. `"sessionTitle": true` is shorthand. The feature is disabled by default and stays hidden until the session has a name. `"alignment"` accepts `"left"` or `"right"`; omitted alignment defaults to left. Set `"showLastPrompt": false` inside `powerline` to hide the `↳` reminder of your most recent prompt. A legacy top-level `"showLastPrompt": false` is also honored. Set `"welcome": false` to skip the startup welcome while leaving powerline enabled.
 
 | Preset | Description |
 |--------|-------------|
@@ -183,7 +186,7 @@ Use `powerline.layout` to override segment order and grouping while keeping the 
     "preset": "default",
     "separator": "chevron",
     "layout": {
-      "left": ["model", "thinking", "path", "git"],
+      "left": ["model_thinking", "path", "git"],
       "right": ["context_pct", "cost"],
       "secondary": ["custom:ci"]
     },
@@ -196,7 +199,7 @@ Use `powerline.layout` to override segment order and grouping while keeping the 
 
 A present `left`, `right`, or `secondary` array replaces that preset group exactly; an empty array clears it. `left` stays at the start of the powerline row and `right` is aligned to its terminal edge. Omitted groups keep the preset entries and automatically append custom items by their configured `position`. Explicitly listing a segment moves it out of omitted preset groups, and explicitly placed custom items are not auto-appended elsewhere. `disabledSegments` is applied after layout. `separator` accepts any style listed below; omit it to keep the preset’s separator.
 
-`secondary` is always a separate row. `right` aligns to the terminal edge when its segments fit in the top row. On narrow terminals primary overflow moves into the secondary line before configured secondary entries. Some segments are hidden when they have no value, so `thinking` appears only when the active session/model reports a non-`off` thinking level. Unknown entries are ignored with a startup warning. The old fixed `custom` preset has been removed; combine any preset with `layout` instead.
+`secondary` is always a separate row. `right` aligns to the terminal edge when its segments fit in the top row. On narrow terminals primary overflow moves into the secondary line before configured secondary entries. Some segments are hidden when they have no value, so `thinking` appears only when the active session/model reports a non-`off` thinking level. Use `model_thinking` to keep the model and thinking level in one unit. Set `powerline.modelThinking.wrapper` to render `GPT-5.6 Terra med`, `GPT-5.6 Terra (med)`, or `GPT-5.6 Terra [med]`. The model name keeps `powerline.model` display, color, and bold settings. The complete thinking text, including its selected wrapper, keeps the thinking segment's per-level colors and `max` animation. Unknown entries are ignored with a startup warning. The old fixed `custom` preset has been removed; combine any preset with `layout` instead.
 
 ### Demo settings
 
@@ -418,7 +421,7 @@ The origin remote is detected (SSH or HTTPS) and mapped to an icon: GitHub (), G
 
 ## Segments
 
-`model` · `thinking` · `path` · `git` · `subagents` · `token_in` · `token_out` · `token_total` · `cost` · `context_pct` · `context_pct_plain` (no auto-compact indicator) · `context_total` · `time_spent` · `time` · `session` · `hostname` · `cache_read` · `cache_write` · `extension_statuses`
+`model` · `model_thinking` (for example, `GPT-5.6 Terra (med)`) · `thinking` · `path` · `git` · `subagents` · `token_in` · `token_out` · `token_total` · `cost` · `context_pct` · `context_pct_plain` (no auto-compact indicator) · `context_total` · `time_spent` · `time` · `session` · `hostname` · `cache_read` · `cache_write` · `extension_statuses`
 
 ## Separators
 
