@@ -23,7 +23,7 @@ import { resolveThinkingLevelSelection } from "./thinking-level.ts";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch, subscribeGitUpdates } from "./git-status.ts";
 import { SessionBranchCache, SessionTokenStatsCache } from "./token-stats.ts";
 import { ansi, getFgAnsiCode } from "./colors.ts";
-import { WelcomeHeader, discoverLoadedCounts, getRecentSessions } from "./welcome.ts";
+import { WelcomeHeader, discoverLoadedCounts, getRecentSessions, type WelcomeHeaderOptions } from "./welcome.ts";
 import { createRenderScheduler } from "./render-scheduler.ts";
 import { refreshMaxThinkingWave } from "./thinking-wave.ts";
 import { getEditorAutocompleteProvider, passAutocompleteProviderThroughPreviousEditor } from "./editor-composition.ts";
@@ -3028,7 +3028,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   function createWelcomeBanner(
     ctx: any,
     recentSessions: Awaited<ReturnType<typeof getRecentSessions>>,
-    options: { trailingSpacing?: boolean } = {},
+    options: WelcomeHeaderOptions = {},
   ): WelcomeHeader {
     const modelName = ctx.model?.name || ctx.model?.id || "No model";
     const providerName = ctx.model?.provider || "Unknown";
@@ -3059,7 +3059,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         if (!canShowWelcome(ctx, request, generation)) return;
 
         ctx.ui.setHeader(markPowerlineWelcomeHeaderFactory(
-          () => createWelcomeBanner(ctx, recentSessions),
+          () => createWelcomeBanner(ctx, recentSessions, { leadingSpacing: !forceResources }),
           () => {
             if (welcomePlacement === "loadedResources") welcomePlacement = null;
           },
