@@ -57,21 +57,34 @@ test("welcome patch renders the banner after Pi's loaded resources", () => {
   const nativeHeading = { name: "native heading" };
   const headerGap = { name: "header gap" };
   let disposed = false;
+  let setRequestRenderCalls = 0;
+  let factoryCalls = 0;
   const banner = {
     dispose() {
       disposed = true;
+    },
+    setRequestRender(requestRender: () => void) {
+      setRequestRenderCalls++;
+      requestRender();
     },
   };
   const mode = createMode(nativeHeading, headerGap);
 
   installPowerlineWelcomeHeaderPatch(prototype);
-  prototype.setExtensionHeader.call(mode, markWelcomeFactory(() => banner));
+  prototype.setExtensionHeader.call(mode, markWelcomeFactory(() => {
+    factoryCalls++;
+    return banner;
+  }));
   prototype.showLoadedResources.call(mode);
 
   assert.deepEqual(mode.headerContainer.children, [nativeHeading, headerGap]);
   assert.deepEqual(mode.loadedResourcesContainer.children, [loadedTheme, resourceGap, banner]);
   assert.deepEqual(resourceOptions, [{ force: true }]);
   assert.deepEqual(originalHeaderCalls, []);
+  // Pi refreshes loaded resources after setHeader. The registration starts this
+  // persistent component's one-shot animation only on its first attachment.
+  assert.equal(setRequestRenderCalls, 1);
+  assert.equal(factoryCalls, 1);
 
   prototype.setExtensionHeader.call(mode, undefined);
 
