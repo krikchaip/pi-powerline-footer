@@ -33,6 +33,7 @@ import { CoreContextUsageCache, estimateInitialContextTokens, estimateUnknownCon
 import { isStaleExtensionContextError, shouldShowStartupWelcome } from "./lifecycle.ts";
 import { getDefaultColors } from "./theme.ts";
 import { registerCdCommand } from "./cd-command.ts";
+import { getPowerlineArgumentCompletions, getQueueArgumentCompletions, getVibeArgumentCompletions } from "./command-completions.ts";
 import {
   isSupportedSuperShortcut,
   matchesConfiguredShortcut,
@@ -52,6 +53,7 @@ import {
   getVibeMode,
   setVibeMode,
   hasVibeFile,
+  getSavedVibeThemes,
   getVibeFileCount,
   generateVibesBatch,
   parseVibeGenerateArgs,
@@ -2143,8 +2145,24 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     },
   });
 
+  const getCommandCompletionContext = () => ({
+    cwd: currentCtx?.cwd ?? process.cwd(),
+    sessionId: currentCtx ? getQueueSessionId(currentCtx) : undefined,
+    queueStore,
+    getModelSpecs: () => {
+      const models = currentCtx?.modelRegistry?.getAvailable?.();
+      if (!Array.isArray(models)) return [];
+      return models.flatMap((model: unknown) => {
+        if (!isRecord(model) || typeof model.provider !== "string" || typeof model.id !== "string") return [];
+        return [`${model.provider}/${model.id}`];
+      });
+    },
+    getVibeThemes: getSavedVibeThemes,
+  });
+
   pi.registerCommand("queue", {
     description: "Manage Powerline queued prompts and project aliases",
+    getArgumentCompletions: (prefix) => getQueueArgumentCompletions(prefix, getCommandCompletionContext()),
     handler: async (args, ctx) => {
       currentCtx = ctx;
       const parts = args.trim().split(/\s+/).filter(Boolean);
@@ -2240,6 +2258,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   // Command to toggle/configure
   pi.registerCommand("powerline", {
     description: "Configure powerline status (toggle, preset)",
+    getArgumentCompletions: getPowerlineArgumentCompletions,
     handler: async (args, ctx) => {
       // Update context reference (command ctx may have more methods)
       currentCtx = ctx;
@@ -2324,6 +2343,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   // Command to set working message theme
   pi.registerCommand("vibe", {
     description: "Set working message theme. Usage: /vibe [theme|off|mode|model|generate]",
+    getArgumentCompletions: (prefix) => getVibeArgumentCompletions(prefix, getCommandCompletionContext()),
     handler: async (args, ctx) => {
       const parts = args?.trim().split(/\s+/) || [];
       const subcommand = parts[0]?.toLowerCase();

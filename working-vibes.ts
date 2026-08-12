@@ -4,7 +4,7 @@
 
 import type { AssistantMessage, Context, Model, ProviderStreamOptions } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { getAgentPath } from "./paths.ts";
 import { applyColor, rainbow } from "./theme.ts";
@@ -639,6 +639,18 @@ function saveModeConfig(): boolean {
 
 export function hasVibeFile(theme: string): boolean {
   return existsSync(getVibeFilePath(theme));
+}
+
+/** Return saved vibe theme slugs for command completion. */
+export function getSavedVibeThemes(): string[] {
+  try {
+    return readdirSync(getVibesDir(), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".txt"))
+      .map((entry) => entry.name.slice(0, -".txt".length))
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
 }
 
 export function getVibeFileCount(theme: string): number {
