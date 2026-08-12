@@ -107,7 +107,8 @@ test("welcome renders the initial system prompt token estimate", () => {
     assert.doesNotMatch(output, /initial prompt tokens/);
   }
   assert.notEqual(editorAdjacent.at(-1), "");
-  assert.match(indexSource, /new WelcomeHeader\(modelName, providerName, recentSessions, loadedCounts, initialContextTokens, options\)/);
+  assert.match(indexSource, /new WelcomeHeader\(modelName, providerName, recentSessions, loadedCounts, initialContextTokens, \{/);
+  assert.match(indexSource, /modelAppearance: \{/);
   assert.match(indexSource, /function setupWelcomeResourcesBanner/);
   assert.doesNotMatch(indexSource, /function setupWelcomeEditorBanner/);
   assert.doesNotMatch(indexSource, /function setupWelcomeOverlay/);
@@ -123,6 +124,7 @@ test("welcome applies the selected D tones and runtime version title", () => {
     border: 103,
     borderAccent: 104,
     accent: 105,
+    warning: 107,
   };
   Reflect.set(globalThis, themeKey, {
     fg(color: string, text: string) {
@@ -140,10 +142,26 @@ test("welcome applies the selected D tones and runtime version title", () => {
       [{ name: "project", timeAgo: "2m ago" }],
       { contextFiles: 2, extensions: 29, skills: 1, promptTemplates: 0 },
       4200,
+      {
+        modelAppearance: {
+          color: "warning",
+          colors: { model: "error" },
+          bold: true,
+        },
+      },
+    ).render(96).join("\n");
+    const presetOutput = new WelcomeHeader(
+      "Preset Model",
+      "Provider",
+      [],
+      { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 },
+      null,
+      { modelAppearance: { colors: { model: "warning" } } },
     ).render(96).join("\n");
     const plainOutput = output.replace(/\x1b\[[0-9;]*m/g, "");
 
     assert.match(plainOutput, new RegExp(`Pi v${VERSION.replaceAll(".", "\\.")}`));
+    assert.ok(presetOutput.includes("\x1b[38;5;107mPreset Model\x1b[0m"));
     assert.match(output, /\x1b\[38;5;101mProvider/);
     assert.match(output, /\x1b\[38;5;101m- /);
     assert.match(output, /\x1b\[38;5;101m• /);
@@ -152,6 +170,13 @@ test("welcome applies the selected D tones and runtime version title", () => {
     }
     assert.match(output, /\x1b\[38;5;102mctrl\+t/);
     assert.match(output, /\x1b\[38;5;103m╭/);
+    assert.deepEqual({
+      modelAppearance: output.includes("\x1b[38;5;107m\x1b[1mModel\x1b[22m\x1b[0m"),
+      recentSessionText: output.includes("\x1b[38;5;101m• \x1b[0mproject\x1b[38;5;102m (2m ago)"),
+    }, {
+      modelAppearance: true,
+      recentSessionText: true,
+    });
   } finally {
     if (previousTheme === undefined) Reflect.deleteProperty(globalThis, themeKey);
     else Reflect.set(globalThis, themeKey, previousTheme);
