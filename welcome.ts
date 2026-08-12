@@ -4,8 +4,9 @@ import { basename, dirname, join } from "node:path";
 import { VERSION as PACKAGE_VERSION, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { truncateToWidth as tuiTruncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { fgOnly } from "./colors.ts";
-import { getAgentPath, getLegacyPiPath, getHomeDir } from "./paths.ts";
+import { getAgentPath, getHomeDir, getLegacyPiPath } from "./paths.ts";
+import { applyColor, fg } from "./theme.ts";
+import type { ColorScheme, ColorValue } from "./types.ts";
 
 export interface RecentSession {
   name: string;
@@ -17,6 +18,17 @@ export interface LoadedCounts {
   extensions: number;
   skills: number;
   promptTemplates: number;
+}
+
+export interface WelcomeModelAppearance {
+  color?: ColorValue;
+  colors?: ColorScheme;
+  bold?: boolean;
+}
+
+export interface WelcomeHeaderOptions {
+  trailingSpacing?: boolean;
+  modelAppearance?: WelcomeModelAppearance;
 }
 
 function formatTokens(tokens: number): string {
@@ -173,6 +185,14 @@ interface WelcomeData {
   recentSessions: RecentSession[];
   loadedCounts: LoadedCounts;
   initialContextTokens: number | null;
+  modelAppearance: WelcomeModelAppearance;
+}
+
+function styleModel(theme: WelcomeTheme, modelName: string, appearance: WelcomeModelAppearance): string {
+  const content = appearance.bold ? theme.bold(modelName) : modelName;
+  return appearance.color
+    ? applyColor(theme, appearance.color, content)
+    : fg(theme, "model", content, appearance.colors);
 }
 
 function buildLeftColumn(data: WelcomeData, colWidth: number, theme: WelcomeTheme, logo: readonly string[]): string[] {
@@ -182,7 +202,7 @@ function buildLeftColumn(data: WelcomeData, colWidth: number, theme: WelcomeThem
     "",
     ...logo.map((line) => centerText(line, colWidth)),
     "",
-    centerText(fgOnly("model", data.modelName), colWidth),
+    centerText(styleModel(theme, data.modelName, data.modelAppearance), colWidth),
     centerText(theme.fg(PROVIDER_TONE, data.providerName), colWidth),
   ];
 }
@@ -214,7 +234,7 @@ function buildRightColumn(data: WelcomeData, colWidth: number, theme: WelcomeThe
   const sessionLines = data.recentSessions.length === 0
     ? [` ${theme.fg(PROVIDER_TONE, "No recent sessions")}`]
     : data.recentSessions.slice(0, 3).map((session) => (
-      ` ${theme.fg(BULLET_TONE, "• ")}${fgOnly("path", session.name)}${theme.fg(SECONDARY_TONE, ` (${session.timeAgo})`)}`
+      ` ${theme.fg(BULLET_TONE, "• ")}${session.name}${theme.fg(SECONDARY_TONE, ` (${session.timeAgo})`)}`
     ));
 
   return [
@@ -283,9 +303,16 @@ export class WelcomeHeader implements Component {
     recentSessions: RecentSession[] = [],
     loadedCounts: LoadedCounts = { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 },
     initialContextTokens: number | null = null,
-    options: { trailingSpacing?: boolean } = {},
+    options: WelcomeHeaderOptions = {},
   ) {
-    this.data = { modelName, providerName, recentSessions, loadedCounts, initialContextTokens };
+    this.data = {
+      modelName,
+      providerName,
+      recentSessions,
+      loadedCounts,
+      initialContextTokens,
+      modelAppearance: options.modelAppearance ?? {},
+    };
     this.trailingSpacing = options.trailingSpacing ?? true;
   }
 

@@ -3034,7 +3034,17 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     const providerName = ctx.model?.provider || "Unknown";
     const loadedCounts = discoverLoadedCounts();
     const initialContextTokens = estimateInitialContextTokens(ctx);
-    return new WelcomeHeader(modelName, providerName, recentSessions, loadedCounts, initialContextTokens, options);
+    const preset = getPreset(config.preset);
+    const modelOptions = mergeSegmentOptions(preset.segmentOptions, config.segmentOptions).model ?? {};
+
+    return new WelcomeHeader(modelName, providerName, recentSessions, loadedCounts, initialContextTokens, {
+      ...options,
+      modelAppearance: {
+        color: modelOptions.color,
+        colors: preset.colors,
+        bold: modelOptions.bold ?? false,
+      },
+    });
   }
 
   function setupWelcomeResourcesBanner(ctx: any, forceResources: boolean): void {
