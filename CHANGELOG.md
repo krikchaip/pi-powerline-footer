@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-12
+
 ### Changed
 - **Editor cursor responsiveness** — Avoid full visual remaps or grapheme scans for safe plain-ASCII cursor movement and forward delete on long single-line drafts.
 
