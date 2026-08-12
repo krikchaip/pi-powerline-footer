@@ -159,3 +159,16 @@ test("max thinking wave refreshes cached ANSI without rebuilding the layout", ()
   assert.equal(cached.topContent, `model | ${maxEffortWave("think:max", 10)} | usage`);
   assert.equal(refreshMaxThinkingWave(cached, 10, 10), cached);
 });
+test("max thinking wave refreshes each model_thinking wrapper prototype", () => {
+  for (const text of ["max", "(max)", "[max]"]) {
+    const cached = {
+      topContent: `GPT-5.6 Terra ${maxEffortWave(text, 10)}`,
+      secondaryContent: "",
+    };
+
+    const refreshed = refreshMaxThinkingWave(cached, 10, 11);
+
+    assert.equal(refreshed.topContent, `GPT-5.6 Terra ${maxEffortWave(text, 11)}`);
+    assert.equal(cached.topContent, `GPT-5.6 Terra ${maxEffortWave(text, 10)}`);
+  }
+});

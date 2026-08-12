@@ -30,6 +30,7 @@ export type ColorScheme = Partial<Record<SemanticColor, ColorValue>>;
 // Built-in segment identifiers
 export const BUILTIN_STATUS_LINE_SEGMENT_IDS = [
   "model",
+  "model_thinking",
   "path",
   "git",
   "subagents",
@@ -82,6 +83,9 @@ export type StatusLinePreset =
 
 // Per-segment options
 export type ModelSegmentColor = "accent" | "borderAccent" | "text" | "muted" | "warning" | `#${string}`;
+
+/** model_thinking wrapper choices. */
+export type ModelThinkingWrapper = "none" | "parentheses" | "brackets";
 
 export interface StatusLineSegmentOptions {
   model?: {
@@ -194,6 +198,7 @@ export interface SegmentContext {
   } | undefined;
   thinkingLevel: string;
   thinkingWaveFrame?: number;
+  modelThinkingWrapper?: ModelThinkingWrapper;
   sessionId: string | undefined;
   cwd?: string;
   

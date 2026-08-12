@@ -1,13 +1,17 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { normalizeCostCurrency } from "./currency-rates.ts";
 import { BUILTIN_STATUS_LINE_SEGMENT_IDS } from "./types.ts";
-import type { ColorValue, CustomItemPosition, CustomStatusItem, ModelSegmentColor, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions, StatusLineSeparatorStyle } from "./types.ts";
+import type { ColorValue, CustomItemPosition, CustomStatusItem, ModelSegmentColor, ModelThinkingWrapper, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions, StatusLineSeparatorStyle } from "./types.ts";
 
 export type CompactPromptMode = "queue" | "native";
 
 export interface SessionTitleConfig {
   enabled: boolean;
   alignment: "left" | "right";
+}
+
+export interface ModelThinkingConfig {
+  wrapper: ModelThinkingWrapper;
 }
 
 export interface PowerlineConfig {
@@ -21,6 +25,7 @@ export interface PowerlineConfig {
   segmentOptions: StatusLineSegmentOptions;
   placement: PowerlinePlacement;
   invalidPlacement: string | null;
+  modelThinking: ModelThinkingConfig;
   welcome: boolean;
   showLastPrompt: boolean;
   sessionTitle: SessionTitleConfig;
@@ -50,6 +55,17 @@ function normalizePlacement(value: unknown): { placement: PowerlinePlacement; in
     placement: "above",
     invalidPlacement: typeof value === "string" ? value.trim() : String(value),
   };
+}
+
+function normalizeModelThinking(value: unknown): ModelThinkingConfig {
+  if (!isRecord(value)) return { wrapper: "brackets" };
+
+  const wrapper = typeof value.wrapper === "string" ? value.wrapper.trim().toLowerCase() : "";
+  if (wrapper === "none" || wrapper === "parentheses" || wrapper === "brackets") {
+    return { wrapper };
+  }
+
+  return { wrapper: "brackets" };
 }
 
 const SEPARATOR_STYLES = [
@@ -354,6 +370,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     segmentOptions: {},
     placement: "above",
     invalidPlacement: null,
+    modelThinking: { wrapper: "brackets" },
     welcome: true,
     showLastPrompt: true,
     sessionTitle: { enabled: false, alignment: "left" },
@@ -370,6 +387,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
   const { disabledSegments, invalidDisabledSegments } = normalizeDisabledSegments(value.disabledSegments, customItems);
   const { layout, invalidLayoutSegments } = normalizeLayout(value.layout, customItems);
   const { placement, invalidPlacement } = normalizePlacement(value.placement);
+  const modelThinking = normalizeModelThinking(value.modelThinking);
 
   return {
     preset: normalizePreset(value.preset, presets) ?? defaultConfig.preset,
@@ -382,6 +400,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     segmentOptions: normalizeSegmentOptions(value),
     placement,
     invalidPlacement,
+    modelThinking,
     welcome: value.welcome !== false,
     showLastPrompt: value.showLastPrompt !== false,
     sessionTitle: normalizeSessionTitle(value.sessionTitle),

@@ -45,37 +45,37 @@ function formatDuration(ms: number): string {
 // Segment Implementations
 // ═══════════════════════════════════════════════════════════════════════════
 
+function renderModelSegment(ctx: SegmentContext, includeThinkingLevel: boolean): RenderedSegment {
+  const icons = getIcons();
+  const opts = ctx.options.model ?? {};
+
+  let modelName = ctx.model?.name || ctx.model?.id || "no-model";
+  if (opts.display === "qualified" && ctx.model?.id) {
+    const provider = ctx.model.provider || ctx.model.providerId || ctx.model.providerName;
+    modelName = provider && !ctx.model.id.includes("/") ? `${provider}/${ctx.model.id}` : ctx.model.id;
+  } else if (modelName.startsWith("Claude ")) {
+    modelName = modelName.slice(7);
+  }
+
+  let content = withIcon(icons.model, modelName);
+  if (includeThinkingLevel && opts.showThinkingLevel !== false && ctx.model?.reasoning) {
+    const thinkingText = getThinkingText(ctx.thinkingLevel || "off");
+    if (thinkingText) {
+      content += `${SEP_DOT}${thinkingText}`;
+    }
+  }
+
+  const styledContent = opts.bold ? `\x1b[1m${content}\x1b[22m` : content;
+  return {
+    content: opts.color ? applyColor(ctx.theme, opts.color, styledContent) : color(ctx, "model", styledContent),
+    visible: true,
+  };
+}
+
 const modelSegment: StatusLineSegment = {
   id: "model",
   render(ctx) {
-    const icons = getIcons();
-    const opts = ctx.options.model ?? {};
-
-    let modelName = ctx.model?.name || ctx.model?.id || "no-model";
-    if (opts.display === "qualified" && ctx.model?.id) {
-      const provider = ctx.model.provider || ctx.model.providerId || ctx.model.providerName;
-      modelName = provider && !ctx.model.id.includes("/") ? `${provider}/${ctx.model.id}` : ctx.model.id;
-    } else if (modelName.startsWith("Claude ")) {
-      modelName = modelName.slice(7);
-    }
-
-    let content = withIcon(icons.model, modelName);
-
-    if (opts.showThinkingLevel !== false && ctx.model?.reasoning) {
-      const level = ctx.thinkingLevel || "off";
-      if (level !== "off") {
-        const thinkingText = getThinkingText(level);
-        if (thinkingText) {
-          content += `${SEP_DOT}${thinkingText}`;
-        }
-      }
-    }
-
-    const styledContent = opts.bold ? `\x1b[1m${content}\x1b[22m` : content;
-    return {
-      content: opts.color ? applyColor(ctx.theme, opts.color, styledContent) : color(ctx, "model", styledContent),
-      visible: true,
-    };
+    return renderModelSegment(ctx, true);
   },
 };
 
@@ -187,46 +187,68 @@ const gitSegment: StatusLineSegment = {
   },
 };
 
+const THINKING_LEVEL_LABELS: Record<string, string> = {
+  off: "off",
+  minimal: "min",
+  low: "low",
+  medium: "med",
+  high: "high",
+  xhigh: "xhigh",
+};
+
+function renderThinkingSegment(ctx: SegmentContext, content: string): RenderedSegment {
+  const level = ctx.thinkingLevel || "off";
+  if (level === "off") return { content: "", visible: false };
+
+  if (level === "max") {
+    return { content: maxEffortWave(content, ctx.thinkingWaveFrame ?? 0), visible: true };
+  }
+
+  if (level === "xhigh") {
+    return { content: rainbowBrightBold(content), visible: true };
+  }
+
+  if (level === "high") {
+    return { content: rainbow(content), visible: true };
+  }
+
+  if (level === "minimal") {
+    return { content: color(ctx, "thinkingMinimal", content), visible: true };
+  }
+  if (level === "low") {
+    return { content: color(ctx, "thinkingLow", content), visible: true };
+  }
+  if (level === "medium") {
+    return { content: color(ctx, "thinkingMedium", content), visible: true };
+  }
+
+  return { content: color(ctx, "thinking", content), visible: true };
+}
+
 const thinkingSegment: StatusLineSegment = {
   id: "thinking",
   render(ctx) {
-    const level = ctx.thinkingLevel || "off";
-    if (level === "off") return { content: "", visible: false };
+    const label = THINKING_LEVEL_LABELS[ctx.thinkingLevel || "off"] || ctx.thinkingLevel;
+    return renderThinkingSegment(ctx, `think:${label}`);
+  },
+};
 
-    const levelText: Record<string, string> = {
-      off: "off",
-      minimal: "min",
-      low: "low",
-      medium: "med",
-      high: "high",
-      xhigh: "xhigh",
-    };
-    const label = levelText[level] || level;
-    const content = `think:${label}`;
+function formatModelThinkingLabel(label: string, wrapper: SegmentContext["modelThinkingWrapper"]): string {
+  if (wrapper === "none") return label;
+  if (wrapper === "brackets") return `[${label}]`;
+  return `(${label})`;
+}
 
-    if (level === "max") {
-      return { content: maxEffortWave(content, ctx.thinkingWaveFrame ?? 0), visible: true };
-    }
+const modelThinkingSegment: StatusLineSegment = {
+  id: "model_thinking",
+  render(ctx) {
+    const model = renderModelSegment(ctx, false);
+    const label = THINKING_LEVEL_LABELS[ctx.thinkingLevel || "off"] || ctx.thinkingLevel;
+    const thinking = renderThinkingSegment(ctx, formatModelThinkingLabel(label, ctx.modelThinkingWrapper));
 
-    if (level === "xhigh") {
-      return { content: rainbowBrightBold(content), visible: true };
-    }
-
-    if (level === "high") {
-      return { content: rainbow(content), visible: true };
-    }
-
-    if (level === "minimal") {
-      return { content: color(ctx, "thinkingMinimal", content), visible: true };
-    }
-    if (level === "low") {
-      return { content: color(ctx, "thinkingLow", content), visible: true };
-    }
-    if (level === "medium") {
-      return { content: color(ctx, "thinkingMedium", content), visible: true };
-    }
-
-    return { content: color(ctx, "thinking", content), visible: true };
+    return thinking.visible
+      ? { content: `${model.content} ${thinking.content}`, visible: true }
+      : model;
   },
 };
 
@@ -533,6 +555,7 @@ const extensionStatusesSegment: StatusLineSegment = {
 
 export const SEGMENTS: Record<BuiltinStatusLineSegmentId, StatusLineSegment> = {
   model: modelSegment,
+  model_thinking: modelThinkingSegment,
   path: pathSegment,
   git: gitSegment,
   thinking: thinkingSegment,
