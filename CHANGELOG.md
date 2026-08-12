@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-08-12
+
 ### Changed
 - **Editor typing responsiveness** — Avoid expanding paste markers or joining full drafts in editor hot paths, debounce bash ghost completion, run git completion lookups asynchronously, cache queue/prompt render work, use a bounded fast render path for large editor drafts, and avoid full grapheme scans when deleting plain ASCII from long lines. Opt-in profiling and render A/B flags now identify remaining editor costs without affecting normal sessions.
 - **Editor hot-path cleanup** — Simplified type narrowing in the fast Backspace path without changing behavior.
