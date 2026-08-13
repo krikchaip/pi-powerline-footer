@@ -285,6 +285,12 @@ test("welcome discovery respects PI_CODING_AGENT_DIR for agent-global files", as
   });
 });
 
+test("persistent welcome banner does not use the removed overlay", () => {
+  assert.ok(indexSource.includes("function setupWelcomeResourcesBanner"));
+  assert.ok(indexSource.includes("new WelcomeHeader"));
+  assert.equal(indexSource.includes("function setupWelcomeOverlay"), false);
+});
+
 test("getRecentSessions reads custom agent sessions and existing legacy sessions", async () => {
   await withTemporaryHome(async (home) => {
     const root = mkdtempSync(join(tmpdir(), "powerline-welcome-sessions-"));

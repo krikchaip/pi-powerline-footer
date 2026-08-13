@@ -432,9 +432,9 @@ test("parsePowerlineConfig supports queue compact prompt mode", () => {
   assert.deepEqual(shorthand.queue, { compactPromptMode: "queue" });
 });
 
-test("parsePowerlineConfig ignores removed stash and idea-capture settings", () => {
+test("parsePowerlineConfig ignores removed stash settings", () => {
   const config = parsePowerlineConfig(
-    { preset: "compact", welcome: false, stashSharpSShortcut: true, queue: { captureSigil: false } },
+    { preset: "compact", welcome: false, stashSharpSShortcut: true },
     ["default", "compact"],
   );
   const shorthand = parsePowerlineConfig("compact", ["default", "compact"]);

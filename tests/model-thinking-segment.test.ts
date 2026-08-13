@@ -18,7 +18,7 @@ function createSegmentContext(overrides: Partial<SegmentContext> = {}): SegmentC
     autoCompactEnabled: true,
     customCompactionEnabled: false,
     usingSubscription: false,
-    queueSummary: { queueCount: 0, ideaCount: 0, blockedCount: 0, compacting: false, leadingText: null, leadingIntent: null, leadingStatus: null },
+    queueSummary: { queueCount: 0, blockedCount: 0, compacting: false, leadingText: null, leadingIntent: null, leadingStatus: null },
     sessionStartTime: Date.now(),
     git: { branch: null, staged: 0, unstaged: 0, untracked: 0 },
     extensionStatuses: new Map(),
