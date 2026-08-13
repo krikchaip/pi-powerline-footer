@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-08-13
+
 ### Fixed
 - **Welcome keypress passthrough** — First input now dismisses the startup welcome UI immediately and forwards that key to the editor so typing starts without an extra keystroke. Closes #166.
 
