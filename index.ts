@@ -8,8 +8,8 @@ import {
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { CURSOR_MARKER, isKeyRelease, type AutocompleteProvider, type SelectItem, SelectList, truncateToWidth, TUI_KEYBINDINGS, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join, dirname } from "node:path";
-import { pathToFileURL } from "node:url";
 
 import type { ColorScheme, SegmentContext, StatusLinePreset, StatusLineSegmentId, StatusLineSeparatorStyle } from "./types.ts";
 import type { PowerlineConfig } from "./powerline-config.ts";
@@ -879,6 +879,7 @@ function computeResponsiveLayout(
 
 const WIDGET_SPACING_PATCH = Symbol.for("pi-powerline-footer.widget-spacing-patch");
 const FOOTER_LAYOUT_PATCH = Symbol.for("pi-powerline-footer.footer-layout-patch");
+const FOOTER_LIFECYCLE_PATCH = Symbol.for("pi-powerline-footer.footer-lifecycle-patch");
 const WELCOME_HEADER_PATCH = Symbol.for("pi-powerline-footer.welcome-header-patch");
 const POWERLINE_FOOTER_FACTORY = Symbol.for("pi-powerline-footer.footer-factory");
 const POWERLINE_WELCOME_HEADER_FACTORY = Symbol.for("pi-powerline-footer.welcome-header-factory");
@@ -940,6 +941,163 @@ export function installPowerlineWidgetSpacingPatch(
       spacerWhenEmpty,
       leadingSpacer && !suppressLeadingWidgetSpacer(widgets, getWidgetConfig()),
     );
+  };
+}
+
+type FooterContainer = {
+  children?: unknown[];
+  clear: () => void;
+  addChild: (component: unknown) => void;
+};
+
+type PowerlineRenderer = {
+  requestRender: (force?: boolean) => void;
+  requestImmediateRender?: () => void;
+  renderNow?: (force?: boolean) => void;
+  cancelRenderTimer?: () => void;
+  renderRequested?: boolean;
+};
+
+type FooterLifecycleMode = {
+  customFooter?: unknown;
+  footer?: unknown;
+  footerContainer?: FooterContainer;
+  renderer?: PowerlineRenderer;
+  ui?: { requestRender?: () => void };
+};
+
+type FrozenRenderer = {
+  renderer: PowerlineRenderer;
+  requestRender: PowerlineRenderer["requestRender"];
+  requestImmediateRender?: PowerlineRenderer["requestImmediateRender"];
+  renderNow?: PowerlineRenderer["renderNow"];
+};
+
+const frozenRenderers = new WeakMap<FooterLifecycleMode, FrozenRenderer>();
+
+type FooterLifecycleMethod = (this: FooterLifecycleMode, ...args: unknown[]) => unknown;
+type AsyncFooterLifecycleMethod = (this: FooterLifecycleMode, ...args: unknown[]) => Promise<unknown>;
+
+type FooterLifecyclePatchState = {
+  originalMountInteractiveTui: FooterLifecycleMethod;
+  originalResetExtensionUI: FooterLifecycleMethod;
+  originalRebindCurrentSession: AsyncFooterLifecycleMethod;
+  originalHandleReloadCommand: AsyncFooterLifecycleMethod;
+  originalSetExtensionFooter?: FooterLifecycleMethod;
+};
+
+type FooterLifecyclePrototype = {
+  mountInteractiveTui?: FooterLifecycleMethod;
+  resetExtensionUI?: FooterLifecycleMethod;
+  rebindCurrentSession?: AsyncFooterLifecycleMethod;
+  handleReloadCommand?: AsyncFooterLifecycleMethod;
+  setExtensionFooter?: FooterLifecycleMethod;
+} & Record<symbol, FooterLifecyclePatchState | undefined>;
+
+function freezePowerlineRenderer(mode: FooterLifecycleMode): void {
+  const renderer = mode.renderer;
+  if (renderer === undefined || frozenRenderers.has(mode)) return;
+
+  renderer.cancelRenderTimer?.();
+  renderer.renderRequested = false;
+  frozenRenderers.set(mode, {
+    renderer,
+    requestRender: renderer.requestRender,
+    requestImmediateRender: renderer.requestImmediateRender,
+    renderNow: renderer.renderNow,
+  });
+  renderer.requestRender = () => {};
+  if (renderer.requestImmediateRender) renderer.requestImmediateRender = () => {};
+  if (renderer.renderNow) renderer.renderNow = () => {};
+}
+
+function thawPowerlineRenderer(mode: FooterLifecycleMode): void {
+  const frozen = frozenRenderers.get(mode);
+  if (frozen === undefined) return;
+
+  frozen.renderer.requestRender = frozen.requestRender;
+  if (frozen.requestImmediateRender) frozen.renderer.requestImmediateRender = frozen.requestImmediateRender;
+  if (frozen.renderNow) frozen.renderer.renderNow = frozen.renderNow;
+  frozenRenderers.delete(mode);
+  frozen.renderer.requestRender(true);
+}
+
+/** Keep Pi's native footer detached while Powerline binds during startup and session changes. */
+export function installPowerlineFooterLifecyclePatch(
+  prototype: object = InteractiveMode.prototype,
+): void {
+  const patchable = prototype as FooterLifecyclePrototype;
+  if (patchable[FOOTER_LIFECYCLE_PATCH]) return;
+
+  const originalMountInteractiveTui = patchable.mountInteractiveTui;
+  const originalResetExtensionUI = patchable.resetExtensionUI;
+  const originalRebindCurrentSession = patchable.rebindCurrentSession;
+  const originalHandleReloadCommand = patchable.handleReloadCommand;
+  const originalSetExtensionFooter = patchable.setExtensionFooter;
+  if (
+    typeof originalMountInteractiveTui !== "function"
+    || typeof originalResetExtensionUI !== "function"
+    || typeof originalRebindCurrentSession !== "function"
+    || typeof originalHandleReloadCommand !== "function"
+  ) return;
+
+  const state: FooterLifecyclePatchState = {
+    originalMountInteractiveTui,
+    originalResetExtensionUI,
+    originalRebindCurrentSession,
+    originalHandleReloadCommand,
+    originalSetExtensionFooter,
+  };
+  patchable[FOOTER_LIFECYCLE_PATCH] = state;
+
+  patchable.mountInteractiveTui = function patchedMountInteractiveTui(
+    this: FooterLifecycleMode,
+    ...args: unknown[]
+  ): unknown {
+    freezePowerlineRenderer(this);
+    return state.originalMountInteractiveTui.apply(this, args);
+  };
+
+  patchable.resetExtensionUI = function patchedResetExtensionUI(
+    this: FooterLifecycleMode,
+    ...args: unknown[]
+  ): unknown {
+    freezePowerlineRenderer(this);
+    return state.originalResetExtensionUI.apply(this, args);
+  };
+
+  if (state.originalSetExtensionFooter) {
+    patchable.setExtensionFooter = function patchedLifecycleSetExtensionFooter(
+      this: FooterLifecycleMode,
+      factory: unknown,
+      ...args: unknown[]
+    ): unknown {
+      const result = state.originalSetExtensionFooter!.call(this, factory, ...args);
+      if (isPowerlineFooterFactory(factory)) thawPowerlineRenderer(this);
+      return result;
+    };
+  }
+
+  patchable.rebindCurrentSession = async function patchedRebindCurrentSession(
+    this: FooterLifecycleMode,
+    ...args: unknown[]
+  ): Promise<unknown> {
+    try {
+      return await state.originalRebindCurrentSession.apply(this, args);
+    } finally {
+      thawPowerlineRenderer(this);
+    }
+  };
+
+  patchable.handleReloadCommand = async function patchedHandleReloadCommand(
+    this: FooterLifecycleMode,
+    ...args: unknown[]
+  ): Promise<unknown> {
+    try {
+      return await state.originalHandleReloadCommand.apply(this, args);
+    } finally {
+      thawPowerlineRenderer(this);
+    }
   };
 }
 
@@ -1184,28 +1342,27 @@ export function installPowerlineWelcomeHeaderPatch(
   };
 }
 
-async function installRunningPowerlineWelcomeHeaderPatch(): Promise<void> {
+function installRunningPowerlinePatches(): void {
   const cliEntry = process.argv[1];
   if (!cliEntry) return;
 
   try {
-    const packageRoot = dirname(dirname(realpathSync(cliEntry)));
-    const packageJsonPath = join(packageRoot, "package.json");
-    if (!existsSync(packageJsonPath)) return;
-
-    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: unknown };
-    if (packageJson.name !== "@earendil-works/pi-coding-agent") return;
-
-    const modulePath = join(packageRoot, "dist", "modes", "interactive", "interactive-mode.js");
+    const distPath = dirname(realpathSync(cliEntry));
+    const modulePath = join(distPath, "modes", "interactive", "interactive-mode.js");
     if (!existsSync(modulePath)) return;
 
-    const runningModule = await import(pathToFileURL(modulePath).href) as {
+    const runningModule = createRequire(import.meta.url)(modulePath) as {
       InteractiveMode?: { prototype?: object };
     };
     const runningPrototype = runningModule.InteractiveMode?.prototype;
-    if (runningPrototype) installPowerlineWelcomeHeaderPatch(runningPrototype);
+    if (!runningPrototype) return;
+
+    installPowerlineWidgetSpacingPatch(runningPrototype);
+    installPowerlineFooterLayoutPatch(runningPrototype);
+    installPowerlineFooterLifecyclePatch(runningPrototype);
+    installPowerlineWelcomeHeaderPatch(runningPrototype);
   } catch (error) {
-    console.debug("[powerline-footer] Unable to patch the running Pi header:", error);
+    console.debug("[powerline-footer] Unable to patch the running Pi TUI:", error);
   }
 }
 
@@ -1237,8 +1394,9 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   config = parsePowerlineConfig(startupSettings.powerline, PRESET_NAMES);
   installPowerlineWidgetSpacingPatch();
   installPowerlineFooterLayoutPatch();
+  installPowerlineFooterLifecyclePatch();
   installPowerlineWelcomeHeaderPatch();
-  const runningWelcomeHeaderPatchReady = installRunningPowerlineWelcomeHeaderPatch();
+  installRunningPowerlinePatches();
   let resolvedShortcuts = resolveShortcutConfig(startupSettings);
 
   let enabled = true;
@@ -1762,7 +1920,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   // Track session start
   pi.on("session_start", async (event, ctx) => {
     dismissWelcome(currentCtx ?? ctx);
-    await runningWelcomeHeaderPatchReady;
     sessionGeneration++;
     sessionStartTime = Date.now();
     currentCtx = ctx;
