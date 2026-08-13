@@ -17,13 +17,13 @@ test("Bash mode is not a built-in segment or preset entry", () => {
   }
 });
 
-test("legacy Bash mode settings do not reserve its old shortcut", () => {
+test("legacy Bash mode settings do not affect queue shortcuts", () => {
   const shortcuts = resolveShortcutConfig({
     bashMode: { toggleShortcut: "ctrl+shift+b" },
-    powerlineShortcuts: { ideaCapture: "ctrl+shift+b" },
+    powerlineShortcuts: { queueOpen: "ctrl+shift+b" },
   });
 
-  assert.equal(shortcuts.ideaCapture, "ctrl+shift+b");
+  assert.equal(shortcuts.queueOpen, "ctrl+shift+b");
 });
 
 test("legacy shell_mode layout settings are silently ignored", () => {

@@ -7,7 +7,6 @@ import childProcess from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 
 import { getGitStatus, invalidateGitStatus, readOnlyGitEnv, waitForGitUpdates } from "../git-status.ts";
-const completionSource = readFileSync(new URL("../bash-mode/completion.ts", import.meta.url), "utf-8");
 
 test("read-only git commands opt out of git's optional index lock", () => {
   const env = readOnlyGitEnv({ PATH: "/usr/bin" });
@@ -42,13 +41,6 @@ test("footer git polling hides Windows child consoles while preserving read-only
   }
 });
 
-test("bash git completions hide Windows child consoles", () => {
-  assert.match(
-    completionSource,
-    /execFile\("git", args, \{ cwd, encoding: "utf8", signal, windowsHide: true \}/,
-  );
-});
-
 // Guards the regression end to end, via a `git` shim on PATH: the footer polls
 // every repo the user visits, so it must never take `.git/index.lock`.
 test("the git process the footer spawns receives GIT_OPTIONAL_LOCKS=0", { skip: process.platform === "win32" ? "POSIX shim" : false }, async () => {
@@ -67,7 +59,7 @@ test("the git process the footer spawns receives GIT_OPTIONAL_LOCKS=0", { skip: 
   const originalOptionalLocks = process.env.GIT_OPTIONAL_LOCKS;
   process.env.PATH = `${bin}:${originalPath ?? ""}`;
   // Some environments export GIT_OPTIONAL_LOCKS=0 as a machine-wide workaround
-  // for this bug; force the opposite so we can't inherit a false pass.
+  // for this bug; force the opposite so we cannot inherit a false pass.
   process.env.GIT_OPTIONAL_LOCKS = "1";
   try {
     invalidateGitStatus();

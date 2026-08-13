@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { CURSOR_MARKER } from "@earendil-works/pi-tui";
 import { isSupportedSuperShortcut, matchesConfiguredShortcut, shortcutConflictKey } from "../shortcuts.ts";
-import { parseBashModeSettings, renderFastPowerlineEditor, resolveShortcutConfig } from "../index.ts";
+import { renderFastPowerlineEditor, resolveShortcutConfig } from "../index.ts";
 
 test("surviving editor shortcuts resolve without app-owned chat scrolling", () => {
   const resolved = resolveShortcutConfig({});
@@ -48,9 +48,9 @@ test("conflicting reply shortcut disables reply instead of borrowing another act
   assert.equal(reserved.editorStart, "super+shift+up");
   assert.equal(reserved.editorEnd, "super+shift+down");
 
-  const duplicate = resolveShortcutConfig({ powerlineShortcuts: { reply: "ctrl+alt+h" } });
+  const duplicate = resolveShortcutConfig({ powerlineShortcuts: { reply: "ctrl+alt+q" } });
   assert.equal(duplicate.reply, null);
-  assert.equal(duplicate.stashHistory, "ctrl+alt+h");
+  assert.equal(duplicate.queueOpen, "ctrl+alt+q");
 
   const editorStartDefault = resolveShortcutConfig({ powerlineShortcuts: { reply: "super+shift+up" } });
   assert.equal(editorStartDefault.reply, null);
@@ -63,11 +63,6 @@ test("conflicting reply shortcut disables reply instead of borrowing another act
   assert.equal(editorEndDefault.editorEnd, "super+shift+down");
 });
 
-test("bash completions are opt-in", () => {
-  assert.equal(parseBashModeSettings({}).completions, false);
-  assert.equal(parseBashModeSettings({ bashMode: { completions: true } }).completions, true);
-  assert.equal(parseBashModeSettings({ bashMode: { completions: false } }).completions, false);
-});
 
 test("fast editor render keeps Powerline chrome for large drafts", () => {
   const editor = {
@@ -81,10 +76,7 @@ test("fast editor render keeps Powerline chrome for large drafts", () => {
     cursorCol: 5000,
   });
 
-  const rendered = renderFastPowerlineEditor(editor, 80, {
-    bashModeActive: false,
-    completionsEnabled: false,
-  });
+  const rendered = renderFastPowerlineEditor(editor, 80);
 
   assert.ok(rendered);
   assert.ok(rendered[0]?.includes("↑"));
@@ -92,7 +84,7 @@ test("fast editor render keeps Powerline chrome for large drafts", () => {
   assert.ok(rendered.some((line) => line.includes(">")));
 });
 
-test("fast editor render falls back for short drafts and enabled completions", () => {
+test("fast editor render falls back for short drafts", () => {
   const editor = {
     focused: true,
     isShowingAutocomplete: () => false,
@@ -100,16 +92,8 @@ test("fast editor render falls back for short drafts and enabled completions", (
   };
   Reflect.set(editor, "state", { lines: ["short"], cursorLine: 0, cursorCol: 5 });
 
-  assert.equal(renderFastPowerlineEditor(editor, 80, {
-    bashModeActive: false,
-    completionsEnabled: false,
-  }), null);
+  assert.equal(renderFastPowerlineEditor(editor, 80), null);
 
-  Reflect.set(editor, "state", { lines: ["x".repeat(5000)], cursorLine: 0, cursorCol: 5000 });
-  assert.equal(renderFastPowerlineEditor(editor, 80, {
-    bashModeActive: false,
-    completionsEnabled: true,
-  }), null);
 });
 
 test("fast editor render falls back for wide characters", () => {
@@ -120,10 +104,7 @@ test("fast editor render falls back for wide characters", () => {
   };
   Reflect.set(editor, "state", { lines: ["漢".repeat(1300)], cursorLine: 0, cursorCol: 1291 });
 
-  assert.equal(renderFastPowerlineEditor(editor, 80, {
-    bashModeActive: false,
-    completionsEnabled: false,
-  }), null);
+  assert.equal(renderFastPowerlineEditor(editor, 80), null);
 });
 
 test("fast editor render updates the editor navigation width", () => {
@@ -135,9 +116,6 @@ test("fast editor render updates the editor navigation width", () => {
   };
   Reflect.set(editor, "state", { lines: ["x".repeat(5000)], cursorLine: 0, cursorCol: 5000 });
 
-  assert.ok(renderFastPowerlineEditor(editor, 80, {
-    bashModeActive: false,
-    completionsEnabled: false,
-  }));
+  assert.ok(renderFastPowerlineEditor(editor, 80));
   assert.equal(Reflect.get(editor, "lastWidth"), 76);
 });
