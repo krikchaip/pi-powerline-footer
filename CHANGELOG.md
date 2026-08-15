@@ -2,14 +2,16 @@
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-15
+
 ### Added
-- **Working vibe colors** — Added `powerline.workingVibes.color` for Pi theme colors, hex colors, or `rainbow`. Thanks to [@jummyliu](https://github.com/jummyliu) for #170.
+- **Working vibe colors** — Added `powerline.workingVibes.color` so vibe text can use Pi theme colors, hex colors, or `rainbow`. Thanks to [@jummyliu](https://github.com/jummyliu) for #170.
 
 ### Changed
-- **Pi 0.84 compatibility** — Widened Pi package peer dependency ranges to `>=0.81.0 <0.85.0` and refreshed dev dependencies against `@earendil-works/*` 0.84.1, so `pi-powerline-footer` can install alongside extensions that require Pi 0.84.x packages. Thanks to [@brunoessmann](https://github.com/brunoessmann) for #168.
+- **Pi 0.84 compatibility** — Widened Pi package peer dependency ranges to `>=0.81.0 <0.85.0` and refreshed dev dependencies against `@earendil-works/*` 0.84.1, so `pi-powerline-footer` installs cleanly with Pi 0.84.x packages. Thanks to [@brunoessmann](https://github.com/brunoessmann) for #168.
 
 ### Fixed
-- **Post-compaction queue delivery** — Mark queued prompts sent only after Pi starts the delivered message, and requeue them if startup never happens.
+- **Post-compaction queue delivery** — Mark queued prompts as sent only after Pi starts them, and requeue them if startup does not happen.
 
 ## [0.14.1] - 2026-08-13
 
