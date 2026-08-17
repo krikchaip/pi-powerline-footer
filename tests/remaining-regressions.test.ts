@@ -237,7 +237,7 @@ test("queue delivery tracks acknowledgement and requeues unstarted messages on s
   assert.match(source, /function requeuePendingQueueDeliveries\(error: string\): void \{/);
   assert.match(source, /requeuePendingQueueDeliveries\("Session ended before queued message started"\);/);
   assert.match(source, /finishPendingQueueDelivery\(event\.prompt, ctx\);/);
-  assert.match(source, /finishPendingQueueDelivery\(getPromptHistoryText\(message\.content\), ctx\);/);
+  assert.match(source, /finishPendingQueueDelivery\(extractQueuePromptText\(message\.content\), ctx\);/);
 });
 
 test("editor-adjacent widgets cache queue and last-prompt work", () => {

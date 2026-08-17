@@ -60,7 +60,7 @@ import {
   setVibeWorkingMessageTheme,
   setVibeWorkingMessageColor,
 } from "./working-vibes.ts";
-import { PowerlineQueueStore, currentQueueContext, formatQueueDeliveryText, parseCompactQueuedPrompt } from "./queue/store.ts";
+import { PowerlineQueueStore, currentQueueContext, extractQueuePromptText, formatQueueDeliveryText, parseCompactQueuedPrompt } from "./queue/store.ts";
 import type { PowerlineQueueItem, QueueContext, QueueIntent, QueueSummary, QueueTarget } from "./queue/types.ts";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2094,7 +2094,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     currentCtx = ctx;
     const message = event.message;
     if (isRecord(message) && message.role === "user") {
-      finishPendingQueueDelivery(getPromptHistoryText(message.content), ctx);
+      finishPendingQueueDelivery(extractQueuePromptText(message.content), ctx);
     }
   });
 

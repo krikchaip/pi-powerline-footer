@@ -24,6 +24,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function extractQueuePromptText(content: unknown): string {
+  if (typeof content === "string") {
+    return content.replace(/\s+/g, " ").trim();
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  const textBlocks = content
+    .filter((block) => isRecord(block) && block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text as string);
+  return textBlocks.join("\n").replace(/\s+/g, " ").trim();
+}
+
 function normalizeCwd(cwd: string): string {
   return resolve(cwd);
 }

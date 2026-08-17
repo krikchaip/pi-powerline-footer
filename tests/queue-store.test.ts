@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { PowerlineQueueStore, currentQueueContext, formatQueueDeliveryText, parseCompactQueuedPrompt } from "../queue/store.ts";
+import { PowerlineQueueStore, currentQueueContext, extractQueuePromptText, formatQueueDeliveryText, parseCompactQueuedPrompt } from "../queue/store.ts";
 
 function withStore(fn: (store: PowerlineQueueStore, dir: string) => void): void {
   const dir = mkdtempSync(join(tmpdir(), "powerline-queue-"));
@@ -41,6 +41,16 @@ test("queue delivery returns the prompt text", () => {
     id: "a1b2c3d4", text: "check logs", createdAt: 1000, updatedAt: 1000,
     source: { cwd: "/tmp/project" }, target: { kind: "current-session" }, intent: "follow-up", status: "queued",
   }), "check logs");
+});
+
+test("queue extracts comparable prompt text from Pi user messages", () => {
+  assert.equal(extractQueuePromptText("  check\n  logs  "), "check logs");
+  assert.equal(extractQueuePromptText([
+    { type: "text", text: "check" },
+    { type: "image", data: "ignored" },
+    { type: "text", text: "the logs" },
+  ]), "check the logs");
+  assert.equal(extractQueuePromptText({ type: "text", text: "ignored" }), "");
 });
 
 test("parseCompactQueuedPrompt treats /compact suffix as queued prompt text", () => {
