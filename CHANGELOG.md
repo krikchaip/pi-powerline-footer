@@ -2,8 +2,10 @@
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-08-19
+
 ### Fixed
-- **Post-compaction queue delivery** — Keep prompts queued until `session_compact` confirms completion instead of blocking them when an intermediate `agent_settled` event fires. Closes #174.
+- **Post-compaction queue delivery** — Prompts typed during compaction now stay queued until compaction finishes, instead of being marked blocked by an intermediate settled state. Closes #174.
 
 ## [0.15.0] - 2026-08-15
 
