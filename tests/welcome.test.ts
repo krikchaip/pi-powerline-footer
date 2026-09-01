@@ -8,52 +8,31 @@ import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { VERSION } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { discoverLoadedCounts, getRecentSessions, WelcomeHeader } from "../welcome.ts";
+import { countStartupTokens, getRecentSessions, loadedCountsFromRuntime, WelcomeHeader } from "../welcome.ts";
 
 const indexSource = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 
-test("discoverLoadedCounts ignores dangling skill symlinks", () => {
-  const root = mkdtempSync(join(tmpdir(), "powerline-welcome-"));
-  const home = join(root, "home");
-  const project = join(root, "project");
-  const skillsDir = join(home, ".pi", "agent", "skills");
-  const originalHome = process.env.HOME;
-  const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
-  const originalCwd = process.cwd();
-  const originalDebug = console.debug;
-  const debugCalls: unknown[][] = [];
-
-  mkdirSync(join(skillsDir, "valid-skill"), { recursive: true });
-  mkdirSync(project, { recursive: true });
-  writeFileSync(join(skillsDir, "valid-skill", "SKILL.md"), "# Valid skill\n");
-  symlinkSync(join(root, "missing-skill"), join(skillsDir, "pi-intercom"), "dir");
-
-  console.debug = (...args: unknown[]) => {
-    debugCalls.push(args);
+test("loadedCountsFromRuntime matches Pi's visible loaded-resource collections", () => {
+  const resourceLoader = {
+    getSystemPromptSource: () => ({ path: "/system.md" }),
+    getAppendSystemPromptSources: () => [{ path: "/append-a.md" }, { path: "/append-b.md" }],
+    getAgentsFiles: () => ({ agentsFiles: [{ path: "/AGENTS.md" }, { path: "/project/AGENTS.md" }] }),
+    getExtensions: () => ({ extensions: [{ hidden: false }, { hidden: true }, {}] }),
+    getSkills: () => ({ skills: [{}, {}, {}] }),
   };
 
-  try {
-    process.env.HOME = home;
-    delete process.env.PI_CODING_AGENT_DIR;
-    process.chdir(project);
-
-    assert.equal(discoverLoadedCounts().skills, 1);
-    assert.deepEqual(debugCalls, []);
-  } finally {
-    console.debug = originalDebug;
-    process.chdir(originalCwd);
-    if (originalHome === undefined) {
-      delete process.env.HOME;
-    } else {
-      process.env.HOME = originalHome;
-    }
-    if (originalAgentDir === undefined) {
-      delete process.env.PI_CODING_AGENT_DIR;
-    } else {
-      process.env.PI_CODING_AGENT_DIR = originalAgentDir;
-    }
-    rmSync(root, { recursive: true, force: true });
-  }
+  assert.deepEqual(loadedCountsFromRuntime(resourceLoader, [{}, {}, {}, {}]), {
+    contextFiles: 5,
+    extensions: 2,
+    skills: 3,
+    promptTemplates: 4,
+  });
+  assert.deepEqual(loadedCountsFromRuntime(undefined, undefined), {
+    contextFiles: 0,
+    extensions: 0,
+    skills: 0,
+    promptTemplates: 0,
+  });
 });
 
 async function withTemporaryHome(run: (home: string) => void | Promise<void>): Promise<void> {
@@ -80,7 +59,23 @@ async function withTemporaryHome(run: (home: string) => void | Promise<void>): P
   }
 }
 
-test("welcome renders the initial system prompt token estimate", () => {
+test("countStartupTokens matches token-burden's startup total", () => {
+  assert.equal(countStartupTokens({}), null);
+  assert.equal(countStartupTokens({ getSystemPrompt: () => "" }), null);
+  assert.equal(countStartupTokens({ getSystemPrompt: () => "   " }), null);
+  assert.equal(countStartupTokens({ getSystemPrompt: () => "hello world" }), 2);
+  assert.equal(countStartupTokens({ getSystemPrompt: () => "สวัสดีชาวโลก" }), 7);
+  assert.equal(countStartupTokens(
+    {
+      getSystemPrompt: () => "hello world",
+      model: { api: "openai-responses", provider: "openai" },
+    },
+    [{ name: "search", description: "Find things", parameters: { type: "object", properties: {} } }],
+    ["search"],
+  ), 32);
+});
+
+test("welcome renders the startup token burden", () => {
   const counts = { contextFiles: 1, extensions: 1, skills: 1, promptTemplates: 1 };
   const rendered = new WelcomeHeader("Model", "Provider", [], counts, 1900)
     .render(96)
@@ -102,12 +97,12 @@ test("welcome renders the initial system prompt token estimate", () => {
     { trailingSpacing: false },
   ).render(96);
 
-  assert.match(rendered, /≈ 1\.9k initial prompt tokens/);
+  assert.match(rendered, /≈ 1\.9k tokens loaded at startup/);
   for (const output of withoutEstimate) {
-    assert.doesNotMatch(output, /initial prompt tokens/);
+    assert.doesNotMatch(output, /tokens loaded at startup/);
   }
   assert.notEqual(editorAdjacent.at(-1), "");
-  assert.match(indexSource, /new WelcomeHeader\(modelName, providerName, recentSessions, loadedCounts, initialContextTokens, \{/);
+  assert.match(indexSource, /new WelcomeHeader\(modelName, providerName, recentSessions, loadedCounts, startupTokens, \{/);
   assert.match(indexSource, /modelAppearance: \{/);
   assert.match(indexSource, /function setupWelcomeResourcesBanner/);
   assert.doesNotMatch(indexSource, /function setupWelcomeEditorBanner/);
@@ -135,7 +130,7 @@ test("quiet welcome adds one blank row above the banner", () => {
   assert.equal(rendered[0], " ");
   assert.notEqual(rendered[1], "");
   assert.notEqual(verbose[0], " ");
-  assert.match(indexSource, /createWelcomeBanner\(ctx, recentSessions, \{ leadingSpacing: !forceResources \}\)/);
+  assert.match(indexSource, /createWelcomeBanner\(ctx, recentSessions, loadedCounts, \{ leadingSpacing: !forceResources \}\)/);
 });
 
 test("welcome applies the selected D tones and runtime version title", () => {
@@ -219,69 +214,51 @@ test("welcome keeps its versioned top-right border aligned", () => {
   for (const line of lines) assert.equal(visibleWidth(line), 94);
 });
 
-test("getRecentSessions prefers cwd basename from session header", async () => {
+test("getRecentSessions uses the latest session name instead of its path", async () => {
   await withTemporaryHome(async (home) => {
-    const sessionsDir = join(home, ".pi", "agent", "sessions", "--Users-nico-dev-encoded-name--");
+    const sessionsDir = join(home, ".pi", "agent", "sessions", "project");
     mkdirSync(sessionsDir, { recursive: true });
-    writeFileSync(join(sessionsDir, "session.jsonl"), JSON.stringify({ cwd: "/Users/nico/dev/my-dashed-project" }) + "\n");
+    writeFileSync(join(sessionsDir, "session.jsonl"), [
+      JSON.stringify({ type: "session", cwd: "/Users/nico/Desktop/private-project" }),
+      JSON.stringify({ type: "session_info", name: "Old session name" }),
+      JSON.stringify({ type: "message", message: { role: "user", content: "hello" } }),
+      JSON.stringify({ type: "session_info", name: "Powerline metrics audit" }),
+      "",
+    ].join("\n"));
 
-    assert.equal((await getRecentSessions(1))[0]?.name, "my-dashed-project");
+    assert.equal((await getRecentSessions(1))[0]?.name, "Powerline metrics audit");
   });
 });
 
-test("getRecentSessions falls back to encoded directory when header cwd is unusable", async () => {
+test("welcome expands to show a complete long session name with right padding", () => {
+  const name = "Powerline footer loaded-resource metrics and startup token burden verification";
+  const lines = new WelcomeHeader(
+    "Model",
+    "Provider",
+    [{ name, timeAgo: "2m ago" }],
+    { contextFiles: 1, extensions: 1, skills: 1, promptTemplates: 1 },
+    1900,
+  ).render(140).filter((line) => line !== "");
+  const plain = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+
+  assert.ok(visibleWidth(lines[0]!) > 96);
+  assert.ok(plain.includes(`${name} (2m ago) │`));
+  assert.doesNotMatch(plain, /…/);
+  for (const line of lines) assert.equal(visibleWidth(line), visibleWidth(lines[0]!));
+});
+
+test("getRecentSessions labels sessions without an active name as anonymous", async () => {
   await withTemporaryHome(async (home) => {
-    const root = join(home, ".pi", "agent", "sessions");
-    const cases = [
-      ["invalid-json", "not-json\n"],
-      ["missing-cwd", JSON.stringify({ type: "session" }) + "\n"],
-      ["non-string-cwd", JSON.stringify({ cwd: 123 }) + "\n"],
-    ];
+    const sessionsDir = join(home, ".pi", "agent", "sessions", "project");
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(join(sessionsDir, "session.jsonl"), [
+      JSON.stringify({ type: "session", cwd: "/Users/nico/Desktop/private-project" }),
+      JSON.stringify({ type: "session_info", name: "Name that was cleared" }),
+      JSON.stringify({ type: "session_info", name: "  " }),
+      "",
+    ].join("\n"));
 
-    for (const [name, content] of cases) {
-      const sessionsDir = join(root, `--Users-nico-dev-${name}--`);
-      mkdirSync(sessionsDir, { recursive: true });
-      writeFileSync(join(sessionsDir, "session.jsonl"), content);
-    }
-
-    const names = (await getRecentSessions(10)).map((session) => session.name);
-    assert.ok(names.includes("json"));
-    assert.ok(names.includes("cwd"));
-  });
-});
-
-test("welcome discovery respects PI_CODING_AGENT_DIR for agent-global files", async () => {
-  await withTemporaryHome((home) => {
-    const root = mkdtempSync(join(tmpdir(), "powerline-welcome-agent-dir-"));
-    const project = join(root, "project");
-    const agentDir = join(root, "agent-dir");
-    const originalCwd = process.cwd();
-
-    try {
-      process.env.PI_CODING_AGENT_DIR = agentDir;
-      mkdirSync(project, { recursive: true });
-      mkdirSync(join(agentDir, "extensions", "local-ext"), { recursive: true });
-      mkdirSync(join(agentDir, "skills", "skill-a"), { recursive: true });
-      mkdirSync(join(agentDir, "commands"), { recursive: true });
-      mkdirSync(join(home, ".pi", "agent"), { recursive: true });
-      writeFileSync(join(agentDir, "AGENTS.md"), "# Agent instructions\n");
-      writeFileSync(join(agentDir, "extensions", "local-ext", "index.ts"), "export default {};\n");
-      writeFileSync(join(agentDir, "skills", "skill-a", "SKILL.md"), "# Skill\n");
-      writeFileSync(join(agentDir, "commands", "hello.md"), "hello\n");
-      writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:pkg-one@1.0.0"] }));
-      writeFileSync(join(home, ".pi", "agent", "AGENTS.md"), "# Should not count\n");
-      process.chdir(project);
-
-      assert.deepEqual(discoverLoadedCounts(), {
-        contextFiles: 1,
-        extensions: 2,
-        skills: 1,
-        promptTemplates: 1,
-      });
-    } finally {
-      process.chdir(originalCwd);
-      rmSync(root, { recursive: true, force: true });
-    }
+    assert.equal((await getRecentSessions(1))[0]?.name, "Anonymous");
   });
 });
 
@@ -302,19 +279,27 @@ test("getRecentSessions reads custom agent sessions and existing legacy sessions
       const legacySessionDir = join(home, ".pi", "sessions", "--legacy--");
       mkdirSync(customSessionDir, { recursive: true });
       mkdirSync(legacySessionDir, { recursive: true });
-      writeFileSync(join(customSessionDir, "session.jsonl"), JSON.stringify({ cwd: "/tmp/custom-project" }) + "\n");
-      writeFileSync(join(legacySessionDir, "session.jsonl"), JSON.stringify({ cwd: "/tmp/legacy-project" }) + "\n");
+      writeFileSync(join(customSessionDir, "session.jsonl"), [
+        JSON.stringify({ type: "session", cwd: "/tmp/custom-project" }),
+        JSON.stringify({ type: "session_info", name: "Custom agent session" }),
+        "",
+      ].join("\n"));
+      writeFileSync(join(legacySessionDir, "session.jsonl"), [
+        JSON.stringify({ type: "session", cwd: "/tmp/legacy-project" }),
+        JSON.stringify({ type: "session_info", name: "Legacy session" }),
+        "",
+      ].join("\n"));
 
       const names = (await getRecentSessions(10)).map((session) => session.name);
-      assert.ok(names.includes("custom-project"));
-      assert.ok(names.includes("legacy-project"));
+      assert.ok(names.includes("Custom agent session"));
+      assert.ok(names.includes("Legacy session"));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 });
 
-test("getRecentSessions selects newest distinct projects across a large nested archive", async () => {
+test("getRecentSessions selects newest distinct names across a large nested archive", async () => {
   await withTemporaryHome(async (home) => {
     const root = join(home, ".pi", "agent", "sessions");
     const nested = join(root, "--encoded--", "artifacts", "nested");
@@ -322,14 +307,14 @@ test("getRecentSessions selects newest distinct projects across a large nested a
     const now = Date.now();
     for (let i = 0; i < 1000; i++) {
       const file = join(nested, `${i}.jsonl`);
-      writeFileSync(file, JSON.stringify({ cwd: "/projects/older" }) + "\n");
+      writeFileSync(file, JSON.stringify({ type: "session_info", name: "Older session" }) + "\n");
       utimesSync(file, (now - 86_400_000) / 1000, (now - 86_400_000) / 1000);
     }
     const recent = [
-      ["a.jsonl", JSON.stringify({ cwd: "/projects/my-dashed-project" }), 60_000],
-      ["b.jsonl", JSON.stringify({ cwd: "/other/my-dashed-project" }), 120_000],
+      ["a.jsonl", JSON.stringify({ type: "session_info", name: "Metrics audit" }), 60_000],
+      ["b.jsonl", JSON.stringify({ type: "session_info", name: "Metrics audit" }), 120_000],
       ["c.jsonl", "not-json", 180_000],
-      ["d.jsonl", JSON.stringify({ cwd: "/projects/third" }), 240_000],
+      ["d.jsonl", JSON.stringify({ type: "session_info", name: "Third session" }), 240_000],
     ] as const;
     for (const [name, header, age] of recent) {
       const file = join(nested, name);
@@ -338,9 +323,9 @@ test("getRecentSessions selects newest distinct projects across a large nested a
     }
 
     assert.deepEqual(await getRecentSessions(), [
-      { name: "my-dashed-project", timeAgo: "1m ago" },
-      { name: "nested", timeAgo: "3m ago" },
-      { name: "third", timeAgo: "4m ago" },
+      { name: "Metrics audit", timeAgo: "1m ago" },
+      { name: "Anonymous", timeAgo: "3m ago" },
+      { name: "Third session", timeAgo: "4m ago" },
     ]);
   });
 });
@@ -374,10 +359,10 @@ test("getRecentSessions follows nested directory links without looping", async (
     const archive = join(home, "archive");
     mkdirSync(root, { recursive: true });
     mkdirSync(archive);
-    writeFileSync(join(archive, "session.jsonl"), JSON.stringify({ cwd: "/projects/linked" }) + "\n");
+    writeFileSync(join(archive, "session.jsonl"), JSON.stringify({ type: "session_info", name: "Linked session" }) + "\n");
     symlinkSync(archive, join(root, "linked"), process.platform === "win32" ? "junction" : "dir");
     symlinkSync(root, join(archive, "cycle"), process.platform === "win32" ? "junction" : "dir");
-    assert.deepEqual(await getRecentSessions(), [{ name: "linked", timeAgo: "just now" }]);
+    assert.deepEqual(await getRecentSessions(), [{ name: "Linked session", timeAgo: "just now" }]);
   });
 });
 
@@ -437,6 +422,8 @@ async function welcomeHarness(t: test.TestContext, home: string, quietStartup: b
     on: (name: string, handler: Handler) => handlers.set(name, handler),
     registerCommand() {},
     sendUserMessage() {},
+    getAllTools: () => [],
+    getActiveTools: () => [],
   };
   (extension as unknown as (api: typeof pi) => void)(pi);
   return {

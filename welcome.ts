@@ -1,10 +1,11 @@
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { open, opendir, realpath, stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { VERSION as PACKAGE_VERSION, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { truncateToWidth as tuiTruncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { getAgentPath, getHomeDir, getLegacyPiPath } from "./paths.ts";
+import { truncateToWidth as tuiTruncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { encode } from "gpt-tokenizer/encoding/o200k_base";
+import { getAgentPath, getLegacyPiPath } from "./paths.ts";
 import { applyColor, fg } from "./theme.ts";
 import type { ColorScheme, ColorValue } from "./types.ts";
 
@@ -63,7 +64,8 @@ const INTRO_TICK_MS = 33;
 const INTRO_SWEEPS = 2.5;
 const INTRO_SHINE_TRAVERSALS = 1;
 const TRUE_COLOR = process.env.COLORTERM === "truecolor" || process.env.COLORTERM === "24bit";
-const SESSION_HEADER_READ_BYTES = 8192;
+const SESSION_TAIL_READ_BYTES = 64 * 1024;
+const ANONYMOUS_SESSION_NAME = "Anonymous";
 
 /** Prefer the running Pi CLI's VERSION over this extension's development dependency. */
 function getRuntimeVersion(): string {
@@ -185,8 +187,110 @@ interface WelcomeData {
   providerName: string;
   recentSessions: RecentSession[];
   loadedCounts: LoadedCounts;
-  initialContextTokens: number | null;
+  startupTokens: number | null;
   modelAppearance: WelcomeModelAppearance;
+}
+
+interface InitialToolDefinition {
+  name: string;
+  description: string;
+  parameters: unknown;
+}
+
+type ToolEnvelope = "openai-responses" | "openai-chat" | "anthropic" | "bedrock" | "google" | "mistral";
+
+function toolEnvelopeForModel(api?: string, provider?: string): ToolEnvelope {
+  switch (api) {
+    case "anthropic-messages": return "anthropic";
+    case "bedrock-converse-stream": return "bedrock";
+    case "google-generative-ai":
+    case "google-vertex": return "google";
+    case "mistral-conversations": return "mistral";
+    case "openai-completions": return "openai-chat";
+    case "azure-openai-responses":
+    case "openai-codex-responses":
+    case "openai-responses": return "openai-responses";
+  }
+
+  const normalizedProvider = provider?.toLowerCase() ?? "";
+  if (normalizedProvider.includes("anthropic")) return "anthropic";
+  if (normalizedProvider.includes("bedrock") || normalizedProvider.includes("amazon")) return "bedrock";
+  if (normalizedProvider.includes("google") || normalizedProvider.includes("gemini") || normalizedProvider.includes("vertex")) return "google";
+  if (normalizedProvider.includes("mistral")) return "mistral";
+  return "openai-responses";
+}
+
+function toolPayload(tool: InitialToolDefinition, envelope: ToolEnvelope): unknown {
+  if (envelope === "openai-responses") {
+    return { type: "function", name: tool.name, description: tool.description, parameters: tool.parameters, strict: false };
+  }
+  if (envelope === "openai-chat" || envelope === "mistral") {
+    return {
+      type: "function",
+      function: { name: tool.name, description: tool.description, parameters: tool.parameters, strict: false },
+    };
+  }
+  if (envelope === "anthropic") {
+    const parameters = typeof tool.parameters === "object" && tool.parameters !== null
+      ? tool.parameters as Record<string, unknown>
+      : {};
+    return {
+      name: tool.name,
+      description: tool.description,
+      input_schema: {
+        type: "object",
+        properties: parameters.properties ?? {},
+        required: parameters.required ?? [],
+      },
+    };
+  }
+  if (envelope === "bedrock") {
+    return {
+      toolSpec: {
+        name: tool.name,
+        description: tool.description,
+        inputSchema: { json: tool.parameters },
+      },
+    };
+  }
+  return { name: tool.name, description: tool.description, parametersJsonSchema: tool.parameters };
+}
+
+function toolEnvelopePayload(tools: readonly InitialToolDefinition[], envelope: ToolEnvelope): unknown {
+  const toolsPayload = tools.map((tool) => toolPayload(tool, envelope));
+  if (envelope === "bedrock") return { tools: toolsPayload };
+  if (envelope === "google") return [{ functionDeclarations: toolsPayload }];
+  return toolsPayload;
+}
+
+/** Count the startup prompt and active tool schemas exactly like pi-token-burden. */
+export function countStartupTokens(
+  ctx: unknown,
+  allTools: readonly InitialToolDefinition[] = [],
+  activeToolNames?: readonly string[],
+): number | null {
+  if (typeof ctx !== "object" || ctx === null || typeof Reflect.get(ctx, "getSystemPrompt") !== "function") {
+    return null;
+  }
+
+  const prompt: unknown = Reflect.get(ctx, "getSystemPrompt").call(ctx);
+  if (typeof prompt !== "string" || !prompt.trim()) return null;
+
+  let total = encode(prompt).length;
+  if (allTools.length === 0) return total;
+
+  const model = Reflect.get(ctx, "model");
+  const api = typeof model === "object" && model !== null && typeof Reflect.get(model, "api") === "string"
+    ? Reflect.get(model, "api") as string
+    : undefined;
+  const provider = typeof model === "object" && model !== null && typeof Reflect.get(model, "provider") === "string"
+    ? Reflect.get(model, "provider") as string
+    : undefined;
+  const activeSet = activeToolNames ? new Set(activeToolNames) : null;
+  const activeTools = activeSet ? allTools.filter((tool) => activeSet.has(tool.name)) : allTools;
+  const payload = toolEnvelopePayload(activeTools, toolEnvelopeForModel(api, provider));
+  total += encode(JSON.stringify(payload)).length;
+  return total;
 }
 
 function styleModel(theme: WelcomeTheme, modelName: string, appearance: WelcomeModelAppearance): string {
@@ -225,18 +329,18 @@ function buildRightColumn(data: WelcomeData, colWidth: number, theme: WelcomeThe
   }
 
   if (
-    data.initialContextTokens !== null
-    && Number.isFinite(data.initialContextTokens)
-    && data.initialContextTokens > 0
+    data.startupTokens !== null
+    && Number.isFinite(data.startupTokens)
+    && data.startupTokens > 0
   ) {
-    countLines.push(` ${bullet}${theme.fg(SECONDARY_TONE, `≈ ${formatTokens(data.initialContextTokens)}`)} initial prompt tokens`);
+    countLines.push(` ${bullet}${theme.fg(SECONDARY_TONE, `≈ ${formatTokens(data.startupTokens)}`)} tokens loaded at startup`);
   }
 
-  const sessionLines = data.recentSessions.length === 0
+  const sessionLines = (data.recentSessions.length === 0
     ? [` ${theme.fg(PROVIDER_TONE, "No recent sessions")}`]
     : data.recentSessions.slice(0, 3).map((session) => (
       ` ${theme.fg(BULLET_TONE, "• ")}${session.name}${theme.fg(SECONDARY_TONE, ` (${session.timeAgo})`)}`
-    ));
+    ))).flatMap((line) => wrapTextWithAnsi(line, colWidth));
 
   return [
     ` ${theme.bold(theme.fg(SECTION_TONE, "Tips"))}`,
@@ -262,8 +366,14 @@ function renderWelcomeBox(
   // Minimum width for two-column layout: leftCol(26) + separator(3) + minRightCol(15) = 44.
   if (termWidth < 44) return [];
 
-  const boxWidth = Math.min(termWidth, Math.max(76, Math.min(termWidth - 2, 96)));
   const leftCol = 26;
+  const maxSessionLineWidth = data.recentSessions.reduce(
+    (maxWidth, session) => Math.max(maxWidth, visibleWidth(` • ${session.name} (${session.timeAgo})`)),
+    0,
+  );
+  const requiredBoxWidth = leftCol + 3 + maxSessionLineWidth + 1;
+  const maxBoxWidth = termWidth >= 76 ? termWidth - 2 : termWidth;
+  const boxWidth = Math.min(maxBoxWidth, Math.max(76, 96, requiredBoxWidth));
   const rightCol = Math.max(1, boxWidth - leftCol - 3);
   const border = (glyph: string) => theme.fg(BORDER_TONE, glyph);
   const leftLines = buildLeftColumn(data, leftCol, theme, logo);
@@ -304,7 +414,7 @@ export class WelcomeHeader implements Component {
     providerName: string,
     recentSessions: RecentSession[] = [],
     loadedCounts: LoadedCounts = { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 },
-    initialContextTokens: number | null = null,
+    startupTokens: number | null = null,
     options: WelcomeHeaderOptions = {},
   ) {
     this.data = {
@@ -312,7 +422,7 @@ export class WelcomeHeader implements Component {
       providerName,
       recentSessions,
       loadedCounts,
-      initialContextTokens,
+      startupTokens,
       modelAppearance: options.modelAppearance ?? {},
     };
     this.leadingSpacing = options.leadingSpacing ?? false;
@@ -379,258 +489,113 @@ function logDiscoveryError(scope: string, error: unknown): void {
   console.debug(`[powerline-welcome] ${scope}:`, error);
 }
 
-/**
- * Discover loaded counts by scanning filesystem.
- */
-export function discoverLoadedCounts(): LoadedCounts {
-  const homeDir = getHomeDir();
-  const cwd = process.cwd();
-  
-  let contextFiles = 0;
-  let extensions = 0;
-  let skills = 0;
-  let promptTemplates = 0;
-
-  const agentsMdPaths = [
-    getAgentPath("AGENTS.md"),
-    join(homeDir, ".claude", "AGENTS.md"),
-    join(cwd, "AGENTS.md"),
-    join(cwd, ".pi", "AGENTS.md"),
-    join(cwd, ".claude", "AGENTS.md"),
-  ];
-  
-  for (const path of agentsMdPaths) {
-    if (existsSync(path)) contextFiles++;
-  }
-
-  const extensionDirs = [
-    getAgentPath("extensions"),
-    join(cwd, "extensions"),
-    join(cwd, ".pi", "extensions"),
-  ];
-
-  const countedExtensions = new Set<string>();
-
-  const settingsPaths = [
-    getAgentPath("settings.json"),
-    join(cwd, ".pi", "settings.json"),
-  ];
-
-  for (const settingsPath of settingsPaths) {
-    if (!existsSync(settingsPath)) {
-      continue;
-    }
-
-    try {
-      const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-      let packages: unknown = null;
-      if (typeof settings === "object" && settings !== null && !Array.isArray(settings)) {
-        packages = (settings as { packages?: unknown }).packages;
-      }
-
-      if (Array.isArray(packages)) {
-        for (const pkg of packages) {
-          let source: unknown = null;
-          let extensionsFilter: unknown = null;
-
-          if (typeof pkg === "string") {
-            source = pkg;
-          } else if (typeof pkg === "object" && pkg !== null && !Array.isArray(pkg)) {
-            source = (pkg as { source?: unknown }).source;
-            extensionsFilter = (pkg as { extensions?: unknown }).extensions;
-          }
-
-          if (typeof source !== "string") {
-            continue;
-          }
-
-          const normalizedSource = source.trim();
-          if (!normalizedSource.startsWith("npm:")) {
-            continue;
-          }
-
-          if (Array.isArray(extensionsFilter) && extensionsFilter.length === 0) {
-            continue;
-          }
-
-          const body = normalizedSource.slice(4);
-          const versionIndex = body.lastIndexOf("@");
-          const name = versionIndex > 0 ? body.slice(0, versionIndex) : body;
-          if (!name || countedExtensions.has(name)) {
-            continue;
-          }
-
-          countedExtensions.add(name);
-          extensions++;
-        }
-      }
-    } catch (error) {
-      logDiscoveryError(`Failed to read settings at ${settingsPath}`, error);
-    }
-  }
-
-  for (const dir of extensionDirs) {
-    if (existsSync(dir)) {
-      try {
-        const entries = readdirSync(dir);
-        for (const entry of entries) {
-          const entryPath = join(dir, entry);
-
-          try {
-            const stats = statSync(entryPath);
-
-            if (stats.isDirectory()) {
-              if (
-                existsSync(join(entryPath, "index.ts")) ||
-                existsSync(join(entryPath, "index.js")) ||
-                existsSync(join(entryPath, "package.json"))
-              ) {
-                if (!countedExtensions.has(entry)) {
-                  countedExtensions.add(entry);
-                  extensions++;
-                }
-              }
-            } else if ((entry.endsWith(".ts") || entry.endsWith(".js")) && !entry.startsWith(".")) {
-              const ext = entry.endsWith(".ts") ? ".ts" : ".js";
-              const name = basename(entry, ext);
-              if (!countedExtensions.has(name)) {
-                countedExtensions.add(name);
-                extensions++;
-              }
-            }
-          } catch (error) {
-            logDiscoveryError(`Failed to inspect extension entry ${entryPath}`, error);
-          }
-        }
-      } catch (error) {
-        logDiscoveryError(`Failed to scan extensions dir ${dir}`, error);
-      }
-    }
-  }
-
-  const skillDirs = [
-    getAgentPath("skills"),
-    join(cwd, ".pi", "skills"),
-    join(cwd, "skills"),
-  ];
-  
-  const countedSkills = new Set<string>();
-  
-  for (const dir of skillDirs) {
-    if (existsSync(dir)) {
-      try {
-        const entries = readdirSync(dir);
-        for (const entry of entries) {
-          const entryPath = join(dir, entry);
-          try {
-            if (statSync(entryPath).isDirectory()) {
-              if (existsSync(join(entryPath, "SKILL.md"))) {
-                if (!countedSkills.has(entry)) {
-                  countedSkills.add(entry);
-                  skills++;
-                }
-              }
-            }
-          } catch (error) {
-            logDiscoveryError(`Failed to inspect skill entry ${entryPath}`, error);
-          }
-        }
-      } catch (error) {
-        logDiscoveryError(`Failed to scan skills dir ${dir}`, error);
-      }
-    }
-  }
-
-  const templateDirs = [
-    getAgentPath("commands"),
-    join(homeDir, ".claude", "commands"),
-    join(cwd, ".pi", "commands"),
-    join(cwd, ".claude", "commands"),
-  ];
-  
-  const countedTemplates = new Set<string>();
-  
-  function countTemplatesInDir(dir: string) {
-    if (!existsSync(dir)) return;
-    try {
-      const entries = readdirSync(dir);
-      for (const entry of entries) {
-        const entryPath = join(dir, entry);
-        try {
-          const stats = statSync(entryPath);
-          if (stats.isDirectory()) {
-            countTemplatesInDir(entryPath);
-          } else if (entry.endsWith(".md")) {
-            const name = basename(entry, ".md");
-            if (!countedTemplates.has(name)) {
-              countedTemplates.add(name);
-              promptTemplates++;
-            }
-          }
-        } catch (error) {
-          logDiscoveryError(`Failed to inspect prompt template entry ${entryPath}`, error);
-        }
-      }
-    } catch (error) {
-      logDiscoveryError(`Failed to scan prompt template dir ${dir}`, error);
-    }
-  }
-  
-  for (const dir of templateDirs) {
-    countTemplatesInDir(dir);
-  }
-
-  return { contextFiles, extensions, skills, promptTemplates };
+export interface WelcomeResourceLoader {
+  getSystemPromptSource(): { path: string } | undefined;
+  getAppendSystemPromptSources(): readonly { path: string }[];
+  getAgentsFiles(): { agentsFiles: readonly { path: string }[] };
+  getExtensions(): { extensions: readonly { hidden?: boolean }[] };
+  getSkills(): { skills: readonly unknown[] };
 }
 
-async function readSessionHeaderProjectName(filePath: string, signal?: AbortSignal): Promise<string | null> {
+/** Count the same loaded-resource collections that Pi renders at startup. */
+export function loadedCountsFromRuntime(
+  resourceLoader: WelcomeResourceLoader | undefined,
+  promptTemplates: readonly unknown[] | undefined,
+): LoadedCounts {
+  if (!resourceLoader) {
+    return { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 };
+  }
+
+  const contextFiles = (resourceLoader.getSystemPromptSource() ? 1 : 0)
+    + resourceLoader.getAppendSystemPromptSources().length
+    + resourceLoader.getAgentsFiles().agentsFiles.length;
+  const extensions = resourceLoader.getExtensions().extensions.filter((extension) => !extension.hidden).length;
+  const skills = resourceLoader.getSkills().skills.length;
+
+  return {
+    contextFiles,
+    extensions,
+    skills,
+    promptTemplates: promptTemplates?.length ?? 0,
+  };
+}
+
+/** Read Pi's active display name from the latest session_info entry. */
+async function readLatestSessionName(
+  filePath: string,
+  fileSize: number,
+  signal?: AbortSignal,
+): Promise<string> {
   let file: Awaited<ReturnType<typeof open>> | undefined;
   try {
     signal?.throwIfAborted();
     file = await open(filePath, "r");
-    signal?.throwIfAborted();
-    const buffer = Buffer.alloc(SESSION_HEADER_READ_BYTES);
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
-    signal?.throwIfAborted();
-    const firstLine = buffer.toString("utf8", 0, bytesRead).split(/\r?\n/, 1)[0]?.trim();
-    if (!firstLine) return null;
+    let position = fileSize;
+    let partialLine = Buffer.alloc(0);
 
-    const header: unknown = JSON.parse(firstLine);
-    if (typeof header !== "object" || header === null || Array.isArray(header)) return null;
+    while (position > 0) {
+      signal?.throwIfAborted();
+      const bytesToRead = Math.min(SESSION_TAIL_READ_BYTES, position);
+      position -= bytesToRead;
+      const buffer = Buffer.allocUnsafe(bytesToRead);
+      const { bytesRead } = await file.read(buffer, 0, bytesToRead, position);
+      signal?.throwIfAborted();
+      const content = Buffer.concat([buffer.subarray(0, bytesRead), partialLine]);
+      let completeStart = 0;
 
-    const cwd = Reflect.get(header, "cwd");
-    if (typeof cwd !== "string" || cwd.trim().length === 0) return null;
+      if (position > 0) {
+        const firstNewline = content.indexOf(0x0a);
+        if (firstNewline < 0) {
+          partialLine = content;
+          continue;
+        }
+        partialLine = Buffer.from(content.subarray(0, firstNewline));
+        completeStart = firstNewline + 1;
+      }
 
-    return basename(cwd) || cwd;
+      let lineEnd = content.length;
+      while (lineEnd >= completeStart) {
+        const previousNewline = lineEnd > completeStart
+          ? content.lastIndexOf(0x0a, lineEnd - 1)
+          : -1;
+        const lineStart = Math.max(completeStart, previousNewline + 1);
+        const line = content.toString("utf8", lineStart, lineEnd).trim();
+        if (line) {
+          try {
+            const entry: unknown = JSON.parse(line);
+            if (typeof entry === "object" && entry !== null && !Array.isArray(entry)
+              && Reflect.get(entry, "type") === "session_info") {
+              const name = Reflect.get(entry, "name");
+              return typeof name === "string" && name.trim() ? name.trim() : ANONYMOUS_SESSION_NAME;
+            }
+          } catch {
+            // Ignore malformed session entries and continue backwards.
+          }
+        }
+        if (previousNewline < completeStart) break;
+        lineEnd = previousNewline;
+      }
+    }
   } catch {
     signal?.throwIfAborted();
-    return null;
   } finally {
     await file?.close();
   }
-}
 
-function sessionProjectNameFromDirectory(dir: string): string {
-  const parentName = basename(dir);
-  if (!parentName.startsWith("--")) {
-    return parentName;
-  }
-
-  const parts = parentName.split("-").filter(p => p);
-  return parts[parts.length - 1] || parentName;
+  return ANONYMOUS_SESSION_NAME;
 }
 
 /**
- * Collect metadata asynchronously, then read bounded headers newest-first.
+ * Collect metadata asynchronously, then read session names newest-first.
  * I/O is serial: at most one directory handle and one filesystem operation are
  * active at a time. Abort rejects after the current operation and closes handles.
  */
 export async function getRecentSessions(maxCount: number = 3, signal?: AbortSignal): Promise<RecentSession[]> {
   signal?.throwIfAborted();
-  if (maxCount === 0) return [];
+  if (maxCount <= 0) return [];
   const pendingDirs = [...new Set([getAgentPath("sessions"), getLegacyPiPath("sessions")])]
     .reverse().map(dir => ({ dir, ancestors: [] as string[] }));
-  const sessions: { filePath: string; dir: string; mtime: number }[] = [];
+  const sessions: { filePath: string; size: number; mtime: number }[] = [];
 
   while (pendingDirs.length > 0) {
     signal?.throwIfAborted();
@@ -641,7 +606,7 @@ export async function getRecentSessions(maxCount: number = 3, signal?: AbortSign
       if (ancestors.includes(canonicalDir)) continue;
       const childAncestors = [...ancestors, canonicalDir];
       const entries = await opendir(dir);
-      // The async iterator closes the directory on completion, error or abort.
+      // The async iterator closes the directory on completion, error, or abort.
       for await (const entry of entries) {
         signal?.throwIfAborted();
         const entryPath = join(dir, entry.name);
@@ -651,7 +616,7 @@ export async function getRecentSessions(maxCount: number = 3, signal?: AbortSign
           if (stats.isDirectory()) {
             pendingDirs.push({ dir: entryPath, ancestors: childAncestors });
           } else if (stats.isFile() && entry.name.endsWith(".jsonl")) {
-            sessions.push({ filePath: entryPath, dir, mtime: stats.mtimeMs });
+            sessions.push({ filePath: entryPath, size: stats.size, mtime: stats.mtimeMs });
           }
         } catch (error) {
           signal?.throwIfAborted();
@@ -667,23 +632,20 @@ export async function getRecentSessions(maxCount: number = 3, signal?: AbortSign
   signal?.throwIfAborted();
   sessions.sort((a, b) => b.mtime - a.mtime);
 
-  const seen = new Set<string>();
-  const uniqueSessions: { name: string; mtime: number }[] = [];
+  const now = Date.now();
+  const seenNames = new Set<string>();
+  const recentSessions: RecentSession[] = [];
   for (const session of sessions) {
     signal?.throwIfAborted();
-    const name = await readSessionHeaderProjectName(session.filePath, signal) ?? sessionProjectNameFromDirectory(session.dir);
+    const name = await readLatestSessionName(session.filePath, session.size, signal);
     signal?.throwIfAborted();
-    if (seen.has(name)) continue;
-    seen.add(name);
-    uniqueSessions.push({ name, mtime: session.mtime });
-    if (maxCount > 0 && uniqueSessions.length >= maxCount) break;
+    if (seenNames.has(name)) continue;
+    seenNames.add(name);
+    recentSessions.push({ name, timeAgo: formatTimeAgo(now - session.mtime) });
+    if (recentSessions.length >= maxCount) break;
   }
 
-  const now = Date.now();
-  return uniqueSessions.slice(0, maxCount).map(s => ({
-    name: s.name.length > 20 ? s.name.slice(0, 17) + "…" : s.name,
-    timeAgo: formatTimeAgo(now - s.mtime),
-  }));
+  return recentSessions;
 }
 
 function formatTimeAgo(ms: number): string {

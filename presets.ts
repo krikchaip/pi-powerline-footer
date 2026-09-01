@@ -58,7 +58,7 @@ export const PRESETS: Record<StatusLinePreset, PresetDef> = {
   },
 
   full: {
-    leftSegments: ["hostname", "model", "thinking", "path", "git", "queue", "subagents"],
+    leftSegments: ["hostname", "model", "thinking", "path", "git", "queue"],
     rightSegments: ["token_in", "token_out", "cache_read", "cost", "context_pct", "time_spent", "time", "extension_statuses"],
     separator: "powerline",
     colors: DEFAULT_COLORS,
@@ -71,7 +71,7 @@ export const PRESETS: Record<StatusLinePreset, PresetDef> = {
   },
 
   nerd: {
-    leftSegments: ["hostname", "model", "thinking", "path", "git", "queue", "session", "subagents"],
+    leftSegments: ["hostname", "model", "thinking", "path", "git", "queue", "session"],
     rightSegments: ["token_in", "token_out", "cache_read", "cache_write", "cost", "context_pct", "context_total", "time_spent", "time", "extension_statuses"],
     separator: "powerline",
     colors: NERD_COLORS,

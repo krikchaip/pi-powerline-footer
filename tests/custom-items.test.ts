@@ -92,7 +92,7 @@ test("one oversized status wraps without a right-edge ellipsis", () => {
 });
 
 test("right-aligned session titles wrap without an edge ellipsis and use the full renderer width", () => {
-  const lines = buildSessionTitleLines("⏳ Tmux-based pi subagents plugin :: side-quests", 24, "right");
+  const lines = buildSessionTitleLines("⏳ Long-running terminal workflow :: side-quests", 24, "right");
 
   assert.ok(lines.length > 1);
   assert.ok(lines.every((line) => !line.includes("…") && !line.includes("...")));

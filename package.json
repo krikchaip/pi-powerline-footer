@@ -44,5 +44,8 @@
     "extensions": [
       "./index.ts"
     ]
+  },
+  "dependencies": {
+    "gpt-tokenizer": "^3.4.0"
   }
 }

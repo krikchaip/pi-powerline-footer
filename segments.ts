@@ -252,16 +252,6 @@ const modelThinkingSegment: StatusLineSegment = {
   },
 };
 
-const subagentsSegment: StatusLineSegment = {
-  id: "subagents",
-  render() {
-    // Note: pi-mono doesn't have subagent tracking built-in
-    // This would require extension state management
-    // For now, return not visible
-    return { content: "", visible: false };
-  },
-};
-
 const queueSegment: StatusLineSegment = {
   id: "queue",
   render(ctx) {
@@ -324,7 +314,7 @@ const tokenTotalSegment: StatusLineSegment = {
 const costSegment: StatusLineSegment = {
   id: "cost",
   render(ctx) {
-    const cost = ctx.usageStats.cost + (ctx.usageStats.subagentCost ?? 0);
+    const cost = ctx.usageStats.cost;
     const usingSubscription = ctx.usingSubscription;
 
     if (!cost && !usingSubscription) {
@@ -559,7 +549,6 @@ export const SEGMENTS: Record<BuiltinStatusLineSegmentId, StatusLineSegment> = {
   path: pathSegment,
   git: gitSegment,
   thinking: thinkingSegment,
-  subagents: subagentsSegment,
   queue: queueSegment,
   token_in: tokenInSegment,
   token_out: tokenOutSegment,

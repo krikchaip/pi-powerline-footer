@@ -421,7 +421,7 @@ The origin remote is detected (SSH or HTTPS) and mapped to an icon: GitHub (), G
 
 ## Segments
 
-`model` · `model_thinking` (for example, `GPT-5.6 Terra (med)`) · `thinking` · `path` · `git` · `subagents` · `token_in` · `token_out` · `token_total` · `cost` · `context_pct` · `context_pct_plain` (no auto-compact indicator) · `context_total` · `time_spent` · `time` · `session` · `hostname` · `cache_read` · `cache_write` · `extension_statuses`
+`model` · `model_thinking` (for example, `GPT-5.6 Terra (med)`) · `thinking` · `path` · `git` · `token_in` · `token_out` · `token_total` · `cost` · `context_pct` · `context_pct_plain` (no auto-compact indicator) · `context_total` · `time_spent` · `time` · `session` · `hostname` · `cache_read` · `cache_write` · `extension_statuses`
 
 ## Separators
 
