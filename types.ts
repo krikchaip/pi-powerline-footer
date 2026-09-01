@@ -33,7 +33,6 @@ export const BUILTIN_STATUS_LINE_SEGMENT_IDS = [
   "model_thinking",
   "path",
   "git",
-  "subagents",
   "queue",
   "token_in",
   "token_out",
@@ -180,8 +179,6 @@ export interface UsageStats {
   cacheRead: number;
   cacheWrite: number;
   cost: number;
-  // Cumulative cost of subagent child runs (e.g. /parallel, /worker) launched from this session.
-  subagentCost: number;
 }
 
 // Context passed to segment render functions

@@ -47,6 +47,16 @@ function createMode(nativeHeading: object, headerGap: object) {
         this.children.push(component);
       },
     },
+    session: {
+      resourceLoader: {
+        getSystemPromptSource: () => ({ path: "/system.md" }),
+        getAppendSystemPromptSources: () => [{ path: "/append.md" }],
+        getAgentsFiles: () => ({ agentsFiles: [{ path: "/AGENTS.md" }] }),
+        getExtensions: () => ({ extensions: [{ hidden: false }, { hidden: true }, {}] }),
+        getSkills: () => ({ skills: [{}, {}] }),
+      },
+      promptTemplates: [{}],
+    },
     ui: { requestRender() {} },
   };
 }
@@ -59,6 +69,7 @@ test("welcome patch renders the banner after Pi's loaded resources", () => {
   let disposed = false;
   let setRequestRenderCalls = 0;
   let factoryCalls = 0;
+  let factoryCounts: unknown;
   const banner = {
     dispose() {
       disposed = true;
@@ -71,8 +82,9 @@ test("welcome patch renders the banner after Pi's loaded resources", () => {
   const mode = createMode(nativeHeading, headerGap);
 
   installPowerlineWelcomeHeaderPatch(prototype);
-  prototype.setExtensionHeader.call(mode, markWelcomeFactory(() => {
+  prototype.setExtensionHeader.call(mode, markWelcomeFactory((counts?: unknown) => {
     factoryCalls++;
+    factoryCounts = counts;
     return banner;
   }));
   prototype.showLoadedResources.call(mode);
@@ -85,6 +97,12 @@ test("welcome patch renders the banner after Pi's loaded resources", () => {
   // persistent component's one-shot animation only on its first attachment.
   assert.equal(setRequestRenderCalls, 1);
   assert.equal(factoryCalls, 1);
+  assert.deepEqual(factoryCounts, {
+    contextFiles: 3,
+    extensions: 2,
+    skills: 2,
+    promptTemplates: 1,
+  });
 
   prototype.setExtensionHeader.call(mode, undefined);
 

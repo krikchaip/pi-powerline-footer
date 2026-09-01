@@ -34,7 +34,7 @@ function createSegmentContext(options: StatusLineSegmentOptions = {}, overrides:
     model: undefined,
     thinkingLevel: "off",
     sessionId: undefined,
-    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, subagentCost: 0 },
+    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
     contextTokens: 0,
     contextPercent: 0,
     contextWindow: 0,
@@ -131,7 +131,7 @@ test("context_pct percent format keeps threshold colors and drops icons", () => 
 
 test("cache_read defaults to raw token count", () => {
   const ctx = createSegmentContext({}, {
-    usageStats: { input: 1000, output: 0, cacheRead: 12300, cacheWrite: 0, cost: 0, subagentCost: 0 },
+    usageStats: { input: 1000, output: 0, cacheRead: 12300, cacheWrite: 0, cost: 0 },
   });
 
   const rendered = renderSegment("cache_read", ctx);
@@ -140,7 +140,7 @@ test("cache_read defaults to raw token count", () => {
 
 test("cache_read percent format renders the cache hit rate", () => {
   const ctx = createSegmentContext({ cache_read: { format: "percent" } }, {
-    usageStats: { input: 2000, output: 0, cacheRead: 8000, cacheWrite: 0, cost: 0, subagentCost: 0 },
+    usageStats: { input: 2000, output: 0, cacheRead: 8000, cacheWrite: 0, cost: 0 },
   });
 
   const rendered = renderSegment("cache_read", ctx);
@@ -149,7 +149,7 @@ test("cache_read percent format renders the cache hit rate", () => {
 
 test("cache_read both format renders raw token count and cache hit rate", () => {
   const ctx = createSegmentContext({ cache_read: { format: "both" } }, {
-    usageStats: { input: 2000, output: 0, cacheRead: 8000, cacheWrite: 0, cost: 0, subagentCost: 0 },
+    usageStats: { input: 2000, output: 0, cacheRead: 8000, cacheWrite: 0, cost: 0 },
   });
 
   const rendered = renderSegment("cache_read", ctx);
@@ -158,12 +158,12 @@ test("cache_read both format renders raw token count and cache hit rate", () => 
 
 test("cache_read percent and both formats handle zero input without NaN", () => {
   const percentCtx = createSegmentContext({ cache_read: { format: "percent" } }, {
-    usageStats: { input: 0, output: 0, cacheRead: 5, cacheWrite: 0, cost: 0, subagentCost: 0 },
+    usageStats: { input: 0, output: 0, cacheRead: 5, cacheWrite: 0, cost: 0 },
   });
   assert.equal(stripAnsi(renderSegment("cache_read", percentCtx).content), "cache 100%");
 
   const bothCtx = createSegmentContext({ cache_read: { format: "both" } }, {
-    usageStats: { input: 0, output: 0, cacheRead: 5, cacheWrite: 0, cost: 0, subagentCost: 0 },
+    usageStats: { input: 0, output: 0, cacheRead: 5, cacheWrite: 0, cost: 0 },
   });
   assert.equal(stripAnsi(renderSegment("cache_read", bothCtx).content), "cache in: 5 (100%)");
 

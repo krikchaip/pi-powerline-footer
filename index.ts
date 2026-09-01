@@ -23,13 +23,13 @@ import { resolveThinkingLevelSelection } from "./thinking-level.ts";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch, subscribeGitUpdates } from "./git-status.ts";
 import { SessionBranchCache, SessionTokenStatsCache } from "./token-stats.ts";
 import { ansi, getFgAnsiCode } from "./colors.ts";
-import { WelcomeHeader, discoverLoadedCounts, getRecentSessions, type WelcomeHeaderOptions } from "./welcome.ts";
+import { WelcomeHeader, countStartupTokens, getRecentSessions, loadedCountsFromRuntime, type LoadedCounts, type WelcomeHeaderOptions, type WelcomeResourceLoader } from "./welcome.ts";
 import { createRenderScheduler } from "./render-scheduler.ts";
 import { refreshMaxThinkingWave } from "./thinking-wave.ts";
 import { getEditorAutocompleteProvider, passAutocompleteProviderThroughPreviousEditor } from "./editor-composition.ts";
 import { EditorPerfProfiler, readEditorPerfOptions } from "./editor-performance.ts";
 import { clearEditorHistorySnapshot, restoreEditorHistory, snapshotEditorHistory, trackEditorHistory } from "./editor-history.ts";
-import { CoreContextUsageCache, estimateInitialContextTokens, estimateUnknownContextUsage, resolveDisplayContextUsage, type CoreContextUsage } from "./context-usage.ts";
+import { CoreContextUsageCache, estimateUnknownContextUsage, resolveDisplayContextUsage, type CoreContextUsage } from "./context-usage.ts";
 import { isStaleExtensionContextError, shouldShowStartupWelcome } from "./lifecycle.ts";
 import { getDefaultColors } from "./theme.ts";
 import { registerCdCommand } from "./cd-command.ts";
@@ -1204,12 +1204,16 @@ type WelcomeHeaderRegistration = {
   onRemoved?: () => void;
 };
 
-type PowerlineWelcomeHeaderFactory = (() => WelcomeHeaderComponent) & Record<symbol, unknown>;
+type PowerlineWelcomeHeaderFactory = ((loadedCounts?: LoadedCounts) => WelcomeHeaderComponent) & Record<symbol, unknown>;
 
 type WelcomeHeaderMode = {
   loadedResourcesContainer?: {
     children: unknown[];
     addChild?: (component: unknown) => void;
+  };
+  session?: {
+    resourceLoader?: WelcomeResourceLoader;
+    promptTemplates?: readonly unknown[];
   };
   ui?: { requestRender?: () => void };
 } & Record<symbol, WelcomeHeaderRegistration | undefined>;
@@ -1315,7 +1319,10 @@ export function installPowerlineWelcomeHeaderPatch(
 
     const onRemoved = factory[POWERLINE_WELCOME_HEADER_REMOVED];
     interactiveMode[POWERLINE_WELCOME_HEADER_COMPONENT] = {
-      factory,
+      factory: () => factory(loadedCountsFromRuntime(
+        interactiveMode.session?.resourceLoader,
+        interactiveMode.session?.promptTemplates,
+      )),
       forceResources: factory[POWERLINE_WELCOME_FORCE_RESOURCES] === true,
       startedComponents: new WeakSet(),
       onRemoved: typeof onRemoved === "function" ? onRemoved as () => void : undefined,
@@ -2146,7 +2153,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     requestQueueRender();
   });
 
-  pi.on("session_compact_failed", async (event, ctx) => {
+  const onSessionCompactFailed = pi.on as unknown as (
+    event: "session_compact_failed",
+    handler: (event: { errorMessage?: string }, ctx: any) => Promise<void>,
+  ) => void;
+  onSessionCompactFailed("session_compact_failed", async (event, ctx) => {
     finishFailedCompaction(ctx, event.errorMessage ?? "Compaction cancelled");
   });
 
@@ -2623,7 +2634,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     // event's stats-relevant fields change, e.g. in-place streaming updates)
     const sessionEvents = sessionBranchCache.get(ctx.sessionManager);
     const tokenStats = tokenStatsCache.get(sessionEvents);
-    const { input, output, cacheRead, cacheWrite, cost, subagentCost } = tokenStats;
+    const { input, output, cacheRead, cacheWrite, cost } = tokenStats;
     const lastAssistant = tokenStats.lastAssistant;
     const thinkingLevelFromSession = tokenStats.thinkingLevelFromSession;
 
@@ -2682,7 +2693,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       modelThinkingWrapper: config.modelThinking.wrapper,
       sessionId: ctx.sessionManager?.getSessionId?.(),
       cwd: ctx.cwd,
-      usageStats: { input, output, cacheRead, cacheWrite, cost, subagentCost },
+      usageStats: { input, output, cacheRead, cacheWrite, cost },
       contextTokens,
       contextPercent,
       contextWindow,
@@ -3207,16 +3218,16 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   function createWelcomeBanner(
     ctx: any,
     recentSessions: Awaited<ReturnType<typeof getRecentSessions>>,
+    loadedCounts: LoadedCounts,
     options: WelcomeHeaderOptions = {},
   ): WelcomeHeader {
     const modelName = ctx.model?.name || ctx.model?.id || "No model";
     const providerName = ctx.model?.provider || "Unknown";
-    const loadedCounts = discoverLoadedCounts();
-    const initialContextTokens = estimateInitialContextTokens(ctx);
+    const startupTokens = countStartupTokens(ctx, pi.getAllTools(), pi.getActiveTools());
     const preset = getPreset(config.preset);
     const modelOptions = mergeSegmentOptions(preset.segmentOptions, config.segmentOptions).model ?? {};
 
-    return new WelcomeHeader(modelName, providerName, recentSessions, loadedCounts, initialContextTokens, {
+    return new WelcomeHeader(modelName, providerName, recentSessions, loadedCounts, startupTokens, {
       ...options,
       modelAppearance: {
         color: modelOptions.color,
@@ -3238,7 +3249,9 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         if (!canShowWelcome(ctx, request, generation)) return;
 
         ctx.ui.setHeader(markPowerlineWelcomeHeaderFactory(
-          () => createWelcomeBanner(ctx, recentSessions, { leadingSpacing: !forceResources }),
+          (loadedCounts = { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 }) => (
+            createWelcomeBanner(ctx, recentSessions, loadedCounts, { leadingSpacing: !forceResources })
+          ),
           () => {
             if (welcomePlacement === "loadedResources") welcomePlacement = null;
           },

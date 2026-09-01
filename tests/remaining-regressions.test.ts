@@ -35,7 +35,7 @@ function createSegmentContext(overrides: Partial<SegmentContext> = {}): SegmentC
     thinkingLevel: "off",
     sessionId: undefined,
     cwd: "/tmp/project",
-    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, subagentCost: 0 },
+    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
     contextTokens: 0,
     contextPercent: 0,
     contextWindow: 0,
@@ -128,16 +128,16 @@ test("cost segment supports subscription display modes and converted currencies"
 
   const subscription = renderSegment("cost", createSegmentContext({
     usingSubscription: true,
-    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0.42, subagentCost: 0 },
+    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0.42 },
   }));
   const reportedCost = renderSegment("cost", createSegmentContext({
     usingSubscription: true,
-    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0.42, subagentCost: 0 },
+    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0.42 },
     options: { cost: { subscriptionDisplay: "reported-cost" } },
   }));
   const both = renderSegment("cost", createSegmentContext({
     usingSubscription: true,
-    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0.42, subagentCost: 0 },
+    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0.42 },
     options: { cost: { subscriptionDisplay: "both" } },
   }));
   const zeroReported = renderSegment("cost", createSegmentContext({
@@ -148,11 +148,8 @@ test("cost segment supports subscription display modes and converted currencies"
     usingSubscription: true,
     options: { cost: { subscriptionDisplay: "both" } },
   }));
-  const withSubagentCost = renderSegment("cost", createSegmentContext({
-    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0.42, subagentCost: 0.58 },
-  }));
   const convertedCurrency = renderSegment("cost", createSegmentContext({
-    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 1, subagentCost: 0.25 },
+    usageStats: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 1 },
     options: { cost: { currency: "CNY" } },
   }));
 
@@ -163,8 +160,7 @@ test("cost segment supports subscription display modes and converted currencies"
   assert.deepEqual(both, { content: "$0.42 (sub)", visible: true });
   assert.deepEqual(zeroReported, { content: "(sub)", visible: true });
   assert.deepEqual(zeroBoth, { content: "(sub)", visible: true });
-  assert.deepEqual(withSubagentCost, { content: "$1.00", visible: true });
-  assert.deepEqual(convertedCurrency, { content: "¥9.00", visible: true });
+  assert.deepEqual(convertedCurrency, { content: "¥7.20", visible: true });
 });
 
 test("context segment shows used tokens, maximum, and percentage", () => {

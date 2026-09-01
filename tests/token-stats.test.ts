@@ -32,25 +32,6 @@ function userEvent() {
   };
 }
 
-function subagentToolResultEvent(costs: number[]) {
-  return {
-    type: "message",
-    message: {
-      role: "toolResult",
-      toolName: "subagent",
-      details: { results: costs.map((cost) => ({ usage: { cost } })) },
-    },
-  };
-}
-
-function subagentSlashResultEvent(costs: number[]) {
-  return {
-    type: "custom_message",
-    customType: "subagent-slash-result",
-    details: { result: { details: { results: costs.map((cost) => ({ usage: { cost } })) } } },
-  };
-}
-
 test("session branch cache reuses a leaf path and refreshes when the leaf changes", () => {
   const cache = new SessionBranchCache();
   let leafId = "leaf-1";
@@ -103,18 +84,6 @@ test("computeSessionTokenStats aggregates usage and tracks thinking level", () =
   assert.equal(stats.thinkingLevelFromSession, "high");
 });
 
-test("computeSessionTokenStats sums subagent child run cost from tool results and slash results", () => {
-  const events = [
-    userEvent(),
-    assistantEvent(makeUsage(10, 5)),
-    subagentToolResultEvent([0.12, 0.34]),
-    subagentSlashResultEvent([0.5]),
-  ];
-
-  const stats = computeSessionTokenStats(events);
-  assert.ok(Math.abs(stats.subagentCost - 0.96) < 1e-12);
-});
-
 test("computeSessionTokenStats ignores assistant messages without tokens for lastAssistant", () => {
   const events = [
     assistantEvent(makeUsage(10, 5)),
@@ -165,21 +134,6 @@ test("cache recomputes when the last event is updated in place (streaming)", () 
   assert.notEqual(second, first);
   assert.equal(second.output, 42);
   assert.equal(second.lastAssistant, tail.message);
-});
-
-test("cache recomputes when the last subagent result cost is updated in place", () => {
-  const cache = new SessionTokenStatsCache();
-  const tail = subagentToolResultEvent([0.1]);
-  const events = [assistantEvent(makeUsage(10, 5)), tail];
-
-  const first = cache.get(events);
-  assert.equal(first.subagentCost, 0.1);
-
-  tail.message.details.results = [{ usage: { cost: 0.3 } }];
-
-  const second = cache.get(events);
-  assert.notEqual(second, first);
-  assert.equal(second.subagentCost, 0.3);
 });
 
 test("cache recomputes when the last event turns into an error in place", () => {
