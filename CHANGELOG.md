@@ -2,21 +2,30 @@
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-04
+
+### Highlights
+- Prompts typed during compaction start when Pi is ready, without another keypress.
+- Welcome startup and footer updates do less background work.
+- Git details and thinking levels stay in sync with your current session.
+- Choose whether `/compact <text>` supplies compaction instructions or queues a prompt.
+- Install with newer Pi versions without an artificial version ceiling.
+
 ### Added
-- **Compact prompt mode** — Added `powerline.queue.compactPromptMode: "native"` so `/compact <text>` can pass `<text>` through to Pi as custom compaction instructions instead of using Powerline's post-compaction queue shorthand. Thanks to [@joshuajbrunner](https://github.com/joshuajbrunner) for #191.
+- **Compact prompt mode** — Set `powerline.queue.compactPromptMode: "native"` to use `/compact <text>` for custom compaction instructions instead of queuing a prompt. The default behavior is unchanged. Thanks to [@joshuajbrunner](https://github.com/joshuajbrunner) for #191.
 
 ### Changed
-- **Pi compatibility** — Remove the Pi peer-dependency upper bounds while retaining the `>=0.81.0` minimum.
-- **Git collection** — Reuse Pi's attached branch and collect status only for configured Git consumers, preserving explicit polling modes and dirty branch coloring (#201).
-- **Welcome startup** — Discover recent sessions asynchronously with bounded header reads, cancelling pending discovery when welcome is dismissed or the session changes. Fixes #199.
-- **Queue display reads** — Reuse unchanged inbox snapshots and skip footer queue summaries when the resolved layout omits or disables the queue segment (#200). Queue previews and explicit queue actions remain independent.
+- **Pi compatibility** — Allow newer Pi versions while keeping the minimum at 0.81.0.
+- **Git updates** — Avoid unnecessary Git commands when Git information is not displayed. Existing polling settings and dirty branch colors still work (#201).
+- **Welcome startup** — Load recent sessions without blocking startup, and stop loading when the welcome screen is dismissed or the session changes (#199).
+- **Queue display** — Avoid rereading an unchanged inbox and skip footer summaries when the queue segment is disabled or omitted. Queue previews and actions still work (#200).
 - **Powerline placement** — Clarified that the primary Powerline row can be shown above or below the editor. Thanks to [@smileBeda](https://github.com/smileBeda) for #188.
 
 ### Fixed
-- **Post-compaction queue readiness** — Keep captured prompts queued until Pi reports idle after successful compaction, including manual completion without an agent-settled event and overflow retries (#198). Cancel pending delivery on failure or session teardown; external failure notifications require Pi 0.84.3 or newer.
-- **Git session freshness** — Keep branch, status, and remote-host icons scoped to the current session cwd, refreshing on session and branch changes (#194). Thanks to [@lengxf](https://github.com/lengxf) for the report.
-- **Terminal-name heuristic** — Fall back to `TERM` only when `TERM_PROGRAM` is unset when inferring Nerd Font support. Thanks to [@a5ehren](https://github.com/a5ehren) for #192/#195.
-- **Live thinking-level display** — Prefer the authoritative thinking-level selection event over a stale session-start context so the footer updates from `think:off` to the selected level. Thanks to [@csp256](https://github.com/csp256) for #196.
+- **Post-compaction queue delivery** — Start queued prompts when Pi becomes idle after successful compaction, including manual compaction and retries, without further input. Cancel pending delivery if compaction fails or the session ends. Detecting failures from compaction started outside Powerline requires Pi 0.84.3 or newer (#198).
+- **Git session details** — Show the branch, status, and remote-host icons for the current session's directory, refreshing when the session or branch changes (#194). Thanks to [@lengxf](https://github.com/lengxf) for the report.
+- **Terminal detection** — Use `TERM` as a fallback only when `TERM_PROGRAM` is unset when detecting Nerd Font support. Thanks to [@a5ehren](https://github.com/a5ehren) for #192/#195.
+- **Live thinking-level display** — Update the footer when the thinking level changes instead of showing a stale value such as `think:off`. Thanks to [@csp256](https://github.com/csp256) for #196.
 
 ## [0.16.0] - 2026-08-25
 
