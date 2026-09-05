@@ -885,6 +885,7 @@ const POWERLINE_FOOTER_FACTORY = Symbol.for("pi-powerline-footer.footer-factory"
 const POWERLINE_WELCOME_HEADER_FACTORY = Symbol.for("pi-powerline-footer.welcome-header-factory");
 const POWERLINE_WELCOME_FORCE_RESOURCES = Symbol.for("pi-powerline-footer.welcome-force-resources");
 const POWERLINE_WELCOME_HEADER_REMOVED = Symbol.for("pi-powerline-footer.welcome-header-removed");
+const POWERLINE_WELCOME_HEADER_REFRESH = Symbol.for("pi-powerline-footer.welcome-header-refresh");
 const POWERLINE_WELCOME_HEADER_COMPONENT = Symbol.for("pi-powerline-footer.welcome-header-component");
 const SESSION_TITLE_WIDGET_KEY = "powerline-session-title";
 
@@ -1202,6 +1203,7 @@ type WelcomeHeaderRegistration = {
   component?: WelcomeHeaderComponent;
   startedComponents: WeakSet<WelcomeHeaderComponent>;
   onRemoved?: () => void;
+  onRefresh?: (loadedCounts: LoadedCounts) => void;
 };
 
 type PowerlineWelcomeHeaderFactory = ((loadedCounts?: LoadedCounts) => WelcomeHeaderComponent) & Record<symbol, unknown>;
@@ -1227,10 +1229,12 @@ function markPowerlineWelcomeHeaderFactory<T extends Function>(
   factory: T,
   onRemoved: () => void,
   forceResources: boolean,
+  onRefresh: (loadedCounts: LoadedCounts) => void,
 ): T {
   Object.defineProperty(factory, POWERLINE_WELCOME_HEADER_FACTORY, { value: true });
   Object.defineProperty(factory, POWERLINE_WELCOME_FORCE_RESOURCES, { value: forceResources });
   Object.defineProperty(factory, POWERLINE_WELCOME_HEADER_REMOVED, { value: onRemoved });
+  Object.defineProperty(factory, POWERLINE_WELCOME_HEADER_REFRESH, { value: onRefresh });
   return factory;
 }
 
@@ -1318,6 +1322,7 @@ export function installPowerlineWelcomeHeaderPatch(
     }
 
     const onRemoved = factory[POWERLINE_WELCOME_HEADER_REMOVED];
+    const onRefresh = factory[POWERLINE_WELCOME_HEADER_REFRESH];
     interactiveMode[POWERLINE_WELCOME_HEADER_COMPONENT] = {
       factory: () => factory(loadedCountsFromRuntime(
         interactiveMode.session?.resourceLoader,
@@ -1326,6 +1331,9 @@ export function installPowerlineWelcomeHeaderPatch(
       forceResources: factory[POWERLINE_WELCOME_FORCE_RESOURCES] === true,
       startedComponents: new WeakSet(),
       onRemoved: typeof onRemoved === "function" ? onRemoved as () => void : undefined,
+      onRefresh: typeof onRefresh === "function"
+        ? onRefresh as (loadedCounts: LoadedCounts) => void
+        : undefined,
     };
     appendPowerlineWelcomeHeader(interactiveMode);
     interactiveMode.ui?.requestRender?.();
@@ -1345,6 +1353,10 @@ export function installPowerlineWelcomeHeaderPatch(
       this,
       registration?.forceResources ? { ...originalOptions, force: true } : options,
     );
+    registration?.onRefresh?.(loadedCountsFromRuntime(
+      interactiveMode.session?.resourceLoader,
+      interactiveMode.session?.promptTemplates,
+    ));
     appendPowerlineWelcomeHeader(interactiveMode, banner);
   };
 }
@@ -3240,29 +3252,42 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   function setupWelcomeResourcesBanner(ctx: any, forceResources: boolean): void {
     const request = beginWelcomeRequest(ctx);
     const generation = sessionGeneration;
-    // Keep optional archive discovery off the session_start completion path.
+    let recentSessions: Awaited<ReturnType<typeof getRecentSessions>> = [];
+    let banner: WelcomeHeader | undefined;
+
+    ctx.ui.setHeader(markPowerlineWelcomeHeaderFactory(
+      (loadedCounts = { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 }) => {
+        banner = createWelcomeBanner(ctx, recentSessions, loadedCounts, { leadingSpacing: !forceResources });
+        return banner;
+      },
+      () => {
+        if (welcomeRequest === request) cancelPendingWelcome();
+        if (welcomePlacement === "loadedResources") welcomePlacement = null;
+      },
+      forceResources,
+      (loadedCounts) => {
+        banner?.setLoadedResources(
+          loadedCounts,
+          countStartupTokens(ctx, pi.getAllTools(), pi.getActiveTools()),
+        );
+      },
+    ));
+    welcomePlacement = "loadedResources";
+
+    // Refresh optional session metadata without delaying the startup banner.
     welcomeTimer = setTimeout(async () => {
       welcomeTimer = null;
       try {
         if (!canShowWelcome(ctx, request, generation)) return;
-        const recentSessions = await getRecentSessions(3, request.signal);
+        recentSessions = await getRecentSessions(3, request.signal);
         if (!canShowWelcome(ctx, request, generation)) return;
-
-        ctx.ui.setHeader(markPowerlineWelcomeHeaderFactory(
-          (loadedCounts = { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 }) => (
-            createWelcomeBanner(ctx, recentSessions, loadedCounts, { leadingSpacing: !forceResources })
-          ),
-          () => {
-            if (welcomePlacement === "loadedResources") welcomePlacement = null;
-          },
-          forceResources,
-        ));
-        welcomePlacement = "loadedResources";
-        if (welcomeRequest === request) welcomeRequest = null;
+        banner?.setRecentSessions(recentSessions);
       } catch (error: unknown) {
         if (!request.signal.aborted || error !== request.signal.reason) {
           console.debug("[powerline-footer] Welcome banner failed:", error);
         }
+      } finally {
+        if (welcomeRequest === request) welcomeRequest = null;
       }
     }, 0);
   }

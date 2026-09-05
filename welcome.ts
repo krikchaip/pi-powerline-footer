@@ -408,6 +408,7 @@ export class WelcomeHeader implements Component {
   private readonly trailingSpacing: boolean;
   private startedAt: number | undefined;
   private introTimer: ReturnType<typeof setInterval> | undefined;
+  private requestRender: (() => void) | undefined;
 
   constructor(
     modelName: string,
@@ -431,6 +432,7 @@ export class WelcomeHeader implements Component {
 
   /** Start the one-shot logo animation after Pi attaches this component to its TUI. */
   setRequestRender(requestRender: () => void): void {
+    this.requestRender = requestRender;
     if (this.introTimer || this.startedAt !== undefined) return;
     this.startedAt = performance.now();
     this.introTimer = setInterval(() => {
@@ -442,9 +444,21 @@ export class WelcomeHeader implements Component {
     }, INTRO_TICK_MS);
   }
 
+  setRecentSessions(recentSessions: RecentSession[]): void {
+    this.data.recentSessions = recentSessions;
+    this.requestRender?.();
+  }
+
+  setLoadedResources(loadedCounts: LoadedCounts, startupTokens: number | null): void {
+    this.data.loadedCounts = loadedCounts;
+    this.data.startupTokens = startupTokens;
+    this.requestRender?.();
+  }
+
   dispose(): void {
     if (this.introTimer) clearInterval(this.introTimer);
     this.introTimer = undefined;
+    this.requestRender = undefined;
   }
 
   invalidate(): void {}

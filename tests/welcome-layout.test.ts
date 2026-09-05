@@ -5,14 +5,22 @@ import { installPowerlineWelcomeHeaderPatch } from "../index.ts";
 const WELCOME_HEADER_FACTORY = Symbol.for("pi-powerline-footer.welcome-header-factory");
 const WELCOME_FORCE_RESOURCES = Symbol.for("pi-powerline-footer.welcome-force-resources");
 const WELCOME_HEADER_REMOVED = Symbol.for("pi-powerline-footer.welcome-header-removed");
+const WELCOME_HEADER_REFRESH = Symbol.for("pi-powerline-footer.welcome-header-refresh");
+
+type LoadedCounts = { contextFiles: number; extensions: number; skills: number; promptTemplates: number };
 
 function markWelcomeFactory<T extends () => object>(
   factory: T,
-  options: { forceResources?: boolean; onRemoved?: () => void } = {},
+  options: {
+    forceResources?: boolean;
+    onRemoved?: () => void;
+    onRefresh?: (loadedCounts: LoadedCounts) => void;
+  } = {},
 ): T {
   Object.defineProperty(factory, WELCOME_HEADER_FACTORY, { value: true });
   Object.defineProperty(factory, WELCOME_FORCE_RESOURCES, { value: options.forceResources ?? true });
   if (options.onRemoved) Object.defineProperty(factory, WELCOME_HEADER_REMOVED, { value: options.onRemoved });
+  if (options.onRefresh) Object.defineProperty(factory, WELCOME_HEADER_REFRESH, { value: options.onRefresh });
   return factory;
 }
 
@@ -81,12 +89,16 @@ test("welcome patch renders the banner after Pi's loaded resources", () => {
   };
   const mode = createMode(nativeHeading, headerGap);
 
+  const refreshedCounts: LoadedCounts[] = [];
   installPowerlineWelcomeHeaderPatch(prototype);
   prototype.setExtensionHeader.call(mode, markWelcomeFactory((counts?: unknown) => {
     factoryCalls++;
     factoryCounts = counts;
     return banner;
+  }, {
+    onRefresh: (counts) => refreshedCounts.push(counts),
   }));
+  mode.session.resourceLoader.getSkills = () => ({ skills: [{}, {}, {}] });
   prototype.showLoadedResources.call(mode);
 
   assert.deepEqual(mode.headerContainer.children, [nativeHeading, headerGap]);
@@ -103,6 +115,12 @@ test("welcome patch renders the banner after Pi's loaded resources", () => {
     skills: 2,
     promptTemplates: 1,
   });
+  assert.deepEqual(refreshedCounts, [{
+    contextFiles: 3,
+    extensions: 2,
+    skills: 3,
+    promptTemplates: 1,
+  }]);
 
   prototype.setExtensionHeader.call(mode, undefined);
 

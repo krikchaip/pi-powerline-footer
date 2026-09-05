@@ -11,6 +11,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { countStartupTokens, getRecentSessions, loadedCountsFromRuntime, WelcomeHeader } from "../welcome.ts";
 
 const indexSource = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
+const WELCOME_HEADER_REMOVED = Symbol.for("pi-powerline-footer.welcome-header-removed");
 
 test("loadedCountsFromRuntime matches Pi's visible loaded-resource collections", () => {
   const resourceLoader = {
@@ -75,12 +76,15 @@ test("countStartupTokens matches token-burden's startup total", () => {
   ), 32);
 });
 
-test("welcome renders the startup token burden", () => {
+test("welcome renders and refreshes the startup resource burden", () => {
   const counts = { contextFiles: 1, extensions: 1, skills: 1, promptTemplates: 1 };
-  const rendered = new WelcomeHeader("Model", "Provider", [], counts, 1900)
-    .render(96)
-    .join("\n")
-    .replace(/\x1b\[[0-9;]*m/g, "");
+  const header = new WelcomeHeader("Model", "Provider", [], counts, 1900);
+  const rendered = header.render(96).join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+  header.setLoadedResources(
+    { contextFiles: 2, extensions: 3, skills: 4, promptTemplates: 5 },
+    2900,
+  );
+  const refreshed = header.render(96).join("\n").replace(/\x1b\[[0-9;]*m/g, "");
   const withoutEstimate = [undefined, 0, Number.NaN].map((tokens) => new WelcomeHeader(
     "Model",
     "Provider",
@@ -98,6 +102,11 @@ test("welcome renders the startup token burden", () => {
   ).render(96);
 
   assert.match(rendered, /≈ 1\.9k tokens loaded at startup/);
+  assert.match(refreshed, /2 context files/);
+  assert.match(refreshed, /3 extensions/);
+  assert.match(refreshed, /4 skills/);
+  assert.match(refreshed, /5 prompt templates/);
+  assert.match(refreshed, /≈ 2\.9k tokens loaded at startup/);
   for (const output of withoutEstimate) {
     assert.doesNotMatch(output, /tokens loaded at startup/);
   }
@@ -387,6 +396,7 @@ async function welcomeHarness(t: test.TestContext, home: string, quietStartup: b
   const tui = { requestRender() {}, terminal: { columns: 96, rows: 30 } };
   let editor: WelcomeEditor;
   let view: WelcomeView | undefined;
+  let headerFactory: (() => WelcomeView) | undefined;
   let installations = 0;
   const ctx = {
     cwd: home, hasUI: true, model: { name: "Test model", provider: "test" }, modelRegistry: {},
@@ -398,6 +408,10 @@ async function welcomeHarness(t: test.TestContext, home: string, quietStartup: b
       },
       getEditorComponent: () => undefined,
       setHeader(factory?: () => WelcomeView) {
+        const metadata = headerFactory as unknown as Record<symbol, unknown> | undefined;
+        const onRemoved = metadata?.[WELCOME_HEADER_REMOVED];
+        if (typeof onRemoved === "function") onRemoved();
+        headerFactory = factory;
         view = factory?.();
         if (view) installations++;
       },
@@ -431,6 +445,7 @@ async function welcomeHarness(t: test.TestContext, home: string, quietStartup: b
     get view() { return view; },
     get installations() { return installations; },
     type: (text: string) => editor.handleInput(text),
+    replaceHeader: () => ctx.ui.setHeader(() => ({ render: () => ["competing header"] })),
     event: async (name: string, reason?: string) => { await handlers.get(name)?.({ reason }, ctx); },
     runStartupWork: () => {
       const callbacks = [...timeouts.values()];
@@ -440,9 +455,9 @@ async function welcomeHarness(t: test.TestContext, home: string, quietStartup: b
   };
 }
 
-test("pending welcome discovery is cancelled by typing or nonblocking shutdown", async (t) => {
+test("pending welcome discovery is cancelled by typing, replacement, or nonblocking shutdown", async (t) => {
   for (const quiet of [true, false]) {
-    for (const action of ["typing", "shutdown"] as const) {
+    for (const action of ["typing", "replacement", "shutdown"] as const) {
       await t.test(`${quiet ? "quiet" : "normal"}: ${action}`, async (t) => {
         await withTemporaryHome(async (home) => {
           const harness = await welcomeHarness(t, home, quiet);
@@ -456,6 +471,12 @@ test("pending welcome discovery is cancelled by typing or nonblocking shutdown",
             }
             return realpath(path);
           });
+          let abortCalls = 0;
+          const abort = AbortController.prototype.abort;
+          t.mock.method(AbortController.prototype, "abort", function (this: AbortController, reason?: unknown) {
+            abortCalls++;
+            return abort.call(this, reason);
+          });
           syncBuiltinESMExports();
           let operation: Promise<unknown> | undefined;
           try {
@@ -466,13 +487,20 @@ test("pending welcome discovery is cancelled by typing or nonblocking shutdown",
               harness.type("x");
               harness.type("\x7f"); // Empty again: cancellation, not draft text, must prevent resurrection.
               assert.equal(harness.ctx.ui.getEditorText(), "");
+            } else if (action === "replacement") {
+              harness.replaceHeader();
             } else {
               // Shutdown must finish even while the filesystem operation remains blocked.
               await harness.event("session_shutdown");
             }
+            assert.equal(abortCalls, 1);
             release.resolve();
             await operation;
-            assert.equal(harness.installations, 0);
+            assert.equal(harness.installations, action === "replacement" ? 2 : 1);
+            assert.equal(Boolean(harness.view), action !== "shutdown");
+            if (action === "replacement") {
+              assert.deepEqual(harness.view?.render(96), ["competing header"]);
+            }
           } finally {
             release.resolve();
             await operation;
