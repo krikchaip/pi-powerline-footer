@@ -25,3 +25,9 @@ jobs:
         run: npm run typecheck
       - name: Unit tests
         run: npm test
+      - name: Install Expect
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes expect
+      - name: Real TUI E2E
+        if: runner.os == 'Linux'
+        run: npm run test:e2e

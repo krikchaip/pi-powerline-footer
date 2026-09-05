@@ -1,0 +1,152 @@
+#!/usr/bin/expect -f
+
+set timeout 1
+log_user 0
+set repo [file normalize [file join [file dirname [info script]] ../..]]
+set extension_path "$repo/index.ts"
+set temp_root "/tmp/pi-powerline-welcome-e2e-[pid]"
+set work_dir "$temp_root/work"
+set home_dir "$temp_root/home"
+set state_dir "$home_dir/.pi/agent"
+set sessions_dir "$state_dir/sessions"
+set skill_dir "$temp_root/skills/delayed-resource"
+set fixture_path "$temp_root/fixture.ts"
+set preload_path "$temp_root/delay-session-discovery.cjs"
+set startup_log "$temp_root/startup.ansi"
+set columns 100
+set rows 34
+set active_spawn ""
+
+proc read_binary {path} {
+  set channel [open $path r]
+  fconfigure $channel -translation binary -encoding binary
+  set content [read $channel]
+  close $channel
+  return $content
+}
+
+proc readable {text} {
+  return [string map [list "\x1b" "<ESC>" "\x07" "<BEL>"] $text]
+}
+
+proc cleanup {} {
+  global active_spawn temp_root
+  if {$active_spawn ne ""} {
+    catch {send -i $active_spawn "\003\003"}
+    after 150
+    catch {close -i $active_spawn}
+    catch {wait -i $active_spawn}
+    set active_spawn ""
+  }
+  catch {log_file}
+  catch {file delete -force $temp_root}
+}
+
+proc failure {message {content ""}} {
+  puts stderr "FAIL: $message"
+  if {$content ne ""} {
+    set start [expr {max(0, [string length $content] - 5000)}]
+    puts stderr [readable [string range $content $start end]]
+  }
+  cleanup
+  exit 1
+}
+
+proc drain_until {milliseconds pattern} {
+  global active_spawn
+  set deadline [expr {[clock milliseconds] + $milliseconds}]
+  while {[clock milliseconds] < $deadline} {
+    expect -i $active_spawn -timeout 0 \
+      "\033\[c" { send -i $active_spawn -- "\033\[?1;2c" } \
+      "\033\[?u" { send -i $active_spawn -- "\033\[?0u" } \
+      "Trust project folder?" { failure "unexpected project trust prompt" } \
+      -re $pattern { return 1 } \
+      timeout {} \
+      eof { return 0 }
+    after 10
+  }
+  return 0
+}
+
+file mkdir $work_dir
+file mkdir $sessions_dir
+file mkdir $skill_dir
+set skill [open "$skill_dir/SKILL.md" w]
+puts $skill {---
+name: delayed-resource
+description: Proves resources discovered after session_start refresh the welcome banner.
+---
+
+# Delayed resource
+}
+close $skill
+set settings [open "$state_dir/settings.json" w]
+puts $settings {{"quietStartup":false,"powerline":{"welcome":true}}}
+close $settings
+set session [open "$sessions_dir/delayed.jsonl" w]
+puts $session {{"type":"session_info","name":"Delayed session"}}
+close $session
+
+set fixture [open $fixture_path w]
+puts $fixture {
+export default function (pi: any): void {
+  pi.on("session_start", (_event: unknown, ctx: any) => {
+    ctx.ui.setStatus("welcome-e2e", "WELCOME_E2E_READY");
+  });
+  pi.on("resources_discover", () => ({
+    skillPaths: [process.env.WELCOME_SKILL_DIR],
+  }));
+}
+}
+close $fixture
+
+set preload [open $preload_path w]
+puts $preload {
+const fs = require("node:fs");
+const { syncBuiltinESMExports } = require("node:module");
+const realpath = fs.promises.realpath;
+fs.promises.realpath = async function delayedRealpath(path, ...args) {
+  if (String(path) === process.env.WELCOME_BLOCKED_SESSION_DIR) {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+  return realpath.call(this, path, ...args);
+};
+syncBuiltinESMExports();
+}
+close $preload
+
+if {![file exists $extension_path]} {
+  failure "extension not found: $extension_path"
+}
+
+cd $work_dir
+log_file -a -noappend $startup_log
+spawn env HOME=$home_dir PI_CODING_AGENT_DIR=$state_dir PI_OFFLINE=1 \
+  NODE_OPTIONS="--require=$preload_path" WELCOME_BLOCKED_SESSION_DIR=$sessions_dir \
+  WELCOME_SKILL_DIR=$skill_dir \
+  TERM=xterm-256color COLORTERM=truecolor COLUMNS=$columns LINES=$rows \
+  pi --no-session --no-context-files --no-prompt-templates --no-themes \
+  --no-extensions --no-skills --no-tools -e $extension_path -e $fixture_path
+set active_spawn $spawn_id
+stty columns $columns rows $rows
+
+if {![drain_until 10000 {WELCOME_E2E_READY}]} {
+  failure "Pi TUI did not become ready" [read_binary $startup_log]
+}
+set ready_at [clock milliseconds]
+if {![drain_until 750 {cycle thinking}]} {
+  set elapsed [expr {[clock milliseconds] - $ready_at}]
+  failure "startup banner was absent ${elapsed} ms after the editor became ready" \
+    [read_binary $startup_log]
+}
+if {![drain_until 3000 {1(\x1b\[[0-9;]*m)* skill}]} {
+  failure "startup banner did not refresh resources discovered after session_start" \
+    [read_binary $startup_log]
+}
+if {![drain_until 6000 {Delayed session}]} {
+  failure "startup banner did not refresh after session discovery" [read_binary $startup_log]
+}
+
+puts "PASS welcome startup real-PTY E2E: immediate banner plus resource and session refresh"
+cleanup
+exit 0
