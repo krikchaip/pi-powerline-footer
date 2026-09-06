@@ -4,7 +4,7 @@ set timeout 1
 log_user 0
 set repo [file normalize [file join [file dirname [info script]] ../..]]
 set extension_path "$repo/index.ts"
-set temp_root "/tmp/pi-powerline-welcome-e2e-[pid]"
+set temp_root [file normalize "/tmp/pi-powerline-welcome-e2e-[pid]"]
 set work_dir "$temp_root/work"
 set home_dir "$temp_root/home"
 set state_dir "$home_dir/.pi/agent"
@@ -87,10 +87,11 @@ set settings [open "$state_dir/settings.json" w]
 puts $settings {{"quietStartup":false,"powerline":{"welcome":true}}}
 close $settings
 set session [open "$sessions_dir/delayed.jsonl" w]
+puts $session "{\"type\":\"session\",\"cwd\":\"$work_dir\"}"
 puts $session {{"type":"session_info","name":"Delayed session"}}
 close $session
 set cache [open "$cache_dir/recent-sessions.json" w]
-puts $cache {{"version":1,"sessions":[{"name":"Cached session","timeAgo":"1m ago"}]}}
+puts $cache [format {{"version":2,"workspaces":{"%s":[{"name":"Cached workspace session","timeAgo":"1m ago"}],"%s":[{"name":"Other workspace session","timeAgo":"1m ago"}]}}} $work_dir "$temp_root/other"]
 close $cache
 
 set fixture [open $fixture_path w]
@@ -141,8 +142,8 @@ spawn env HOME=$home_dir PI_CODING_AGENT_DIR=$state_dir PI_OFFLINE=1 \
 set active_spawn $spawn_id
 stty columns $columns rows $rows
 
-if {![drain_until 10000 {Cached session}]} {
-  failure "welcome banner did not render the cached recent session" [read_binary $startup_log]
+if {![drain_until 10000 {Cached workspace session}]} {
+  failure "welcome banner did not render the current workspace cache" [read_binary $startup_log]
 }
 if {![drain_until 750 {WELCOME_E2E_READY}]} {
   failure "welcome banner did not render before Pi became ready" [read_binary $startup_log]
@@ -156,6 +157,9 @@ set startup_content [read_binary $startup_log]
 if {[string first "No recent sessions" $startup_content] >= 0} {
   failure "welcome ignored its recent-session cache" $startup_content
 }
+if {[string first "Other workspace session" $startup_content] >= 0} {
+  failure "welcome rendered a different workspace cache" $startup_content
+}
 if {[string first "Delayed session" $startup_content] >= 0} {
   failure "welcome redrew after best-effort session discovery completed" $startup_content
 }
@@ -164,6 +168,6 @@ if {![drain_until 3000 {1(\x1b\[[0-9;]*m)* skill}]} {
     [read_binary $startup_log]
 }
 
-puts "PASS welcome startup real-PTY E2E: cached sessions render without waiting or redrawing"
+puts "PASS welcome startup real-PTY E2E: exact-workspace cache renders without waiting or redrawing"
 cleanup
 exit 0

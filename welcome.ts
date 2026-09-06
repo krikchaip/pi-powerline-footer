@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { mkdir, open, opendir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { VERSION as PACKAGE_VERSION, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { truncateToWidth as tuiTruncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
@@ -66,36 +66,53 @@ const INTRO_SHINE_TRAVERSALS = 1;
 const TRUE_COLOR = process.env.COLORTERM === "truecolor" || process.env.COLORTERM === "24bit";
 const SESSION_TAIL_READ_BYTES = 64 * 1024;
 const ANONYMOUS_SESSION_NAME = "Anonymous";
-const RECENT_SESSIONS_CACHE_VERSION = 1;
+const RECENT_SESSIONS_CACHE_VERSION = 2;
 const RECENT_SESSIONS_CACHE_DIR = getAgentPath("cache", "pi-powerline-footer");
 const RECENT_SESSIONS_CACHE_PATH = join(RECENT_SESSIONS_CACHE_DIR, "recent-sessions.json");
 
-export function readRecentSessionsCache(limit = 3): RecentSession[] {
+type RecentSessionWorkspaces = Record<string, unknown>;
+
+function readRecentSessionWorkspaces(): RecentSessionWorkspaces {
   try {
     const value = JSON.parse(readFileSync(RECENT_SESSIONS_CACHE_PATH, "utf8")) as {
       version?: unknown;
-      sessions?: unknown;
+      workspaces?: unknown;
     };
-    if (value.version !== RECENT_SESSIONS_CACHE_VERSION || !Array.isArray(value.sessions)) return [];
-    return value.sessions
-      .filter((session): session is RecentSession => (
-        typeof session === "object" && session !== null
-        && typeof Reflect.get(session, "name") === "string"
-        && typeof Reflect.get(session, "timeAgo") === "string"
-      ))
-      .slice(0, Math.max(0, limit));
+    if (value.version !== RECENT_SESSIONS_CACHE_VERSION
+      || typeof value.workspaces !== "object" || value.workspaces === null
+      || Array.isArray(value.workspaces)) return {};
+    return value.workspaces as RecentSessionWorkspaces;
   } catch {
-    return [];
+    return {};
   }
 }
 
-export async function writeRecentSessionsCache(sessions: readonly RecentSession[]): Promise<void> {
+function validRecentSessions(value: unknown): RecentSession[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((session): session is RecentSession => (
+    typeof session === "object" && session !== null
+    && typeof Reflect.get(session, "name") === "string"
+    && typeof Reflect.get(session, "timeAgo") === "string"
+  ));
+}
+
+export function readRecentSessionsCache(workspace: string, limit = 3): RecentSession[] {
+  return validRecentSessions(Reflect.get(readRecentSessionWorkspaces(), resolve(workspace)))
+    .slice(0, Math.max(0, limit));
+}
+
+export async function writeRecentSessionsCache(
+  workspace: string,
+  sessions: readonly RecentSession[],
+): Promise<void> {
   const tempPath = `${RECENT_SESSIONS_CACHE_PATH}.${process.pid}.${Date.now()}.tmp`;
   try {
+    const workspaces = readRecentSessionWorkspaces();
+    workspaces[resolve(workspace)] = sessions;
     await mkdir(RECENT_SESSIONS_CACHE_DIR, { recursive: true });
     await writeFile(tempPath, `${JSON.stringify({
       version: RECENT_SESSIONS_CACHE_VERSION,
-      sessions,
+      workspaces,
     })}\n`, "utf8");
     await rename(tempPath, RECENT_SESSIONS_CACHE_PATH);
   } catch {
@@ -565,6 +582,36 @@ export function loadedCountsFromRuntime(
   };
 }
 
+/** Read the exact working directory recorded in Pi's session header. */
+async function readSessionWorkspace(filePath: string, signal?: AbortSignal): Promise<string | undefined> {
+  let file: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    signal?.throwIfAborted();
+    file = await open(filePath, "r");
+    const buffer = Buffer.allocUnsafe(SESSION_TAIL_READ_BYTES);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    signal?.throwIfAborted();
+    for (const line of buffer.toString("utf8", 0, bytesRead).split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const entry: unknown = JSON.parse(line);
+        if (typeof entry === "object" && entry !== null && !Array.isArray(entry)
+          && Reflect.get(entry, "type") === "session") {
+          const cwd = Reflect.get(entry, "cwd");
+          return typeof cwd === "string" && cwd.trim() ? resolve(cwd) : undefined;
+        }
+      } catch {
+        // Ignore malformed header entries.
+      }
+    }
+  } catch {
+    signal?.throwIfAborted();
+  } finally {
+    await file?.close();
+  }
+  return undefined;
+}
+
 /** Read Pi's active display name from the latest session_info entry. */
 async function readLatestSessionName(
   filePath: string,
@@ -656,9 +703,14 @@ function createAsyncLimiter(maxConcurrency: number) {
  * Directory and metadata reads use separate bounds so large archives stay
  * responsive without opening an unbounded number of handles.
  */
-export async function getRecentSessions(maxCount: number = 3, signal?: AbortSignal): Promise<RecentSession[]> {
+export async function getRecentSessions(
+  workspace: string,
+  maxCount: number = 3,
+  signal?: AbortSignal,
+): Promise<RecentSession[]> {
   signal?.throwIfAborted();
   if (maxCount <= 0) return [];
+  const workspacePath = resolve(workspace);
   const pendingDirs = [...new Set([getAgentPath("sessions"), getLegacyPiPath("sessions")])];
   const visitedDirs = new Set<string>();
   const sessions: { filePath: string; size: number; mtime: number }[] = [];
@@ -728,6 +780,8 @@ export async function getRecentSessions(maxCount: number = 3, signal?: AbortSign
   const seenNames = new Set<string>();
   const recentSessions: RecentSession[] = [];
   for (const session of sessions) {
+    signal?.throwIfAborted();
+    if (await readSessionWorkspace(session.filePath, signal) !== workspacePath) continue;
     signal?.throwIfAborted();
     const name = await readLatestSessionName(session.filePath, session.size, signal);
     signal?.throwIfAborted();
