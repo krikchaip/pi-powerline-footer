@@ -339,6 +339,83 @@ test("getRecentSessions selects newest distinct names across a large nested arch
   });
 });
 
+test("getRecentSessions overlaps bounded metadata reads for responsive startup", async () => {
+  await withTemporaryHome(async (home) => {
+    const root = join(home, ".pi", "agent", "sessions");
+    mkdirSync(root, { recursive: true });
+    for (let i = 0; i < 24; i++) {
+      writeFileSync(join(root, `${i}.jsonl`), JSON.stringify({ type: "session_info", name: `Session ${i}` }) + "\n");
+    }
+
+    const originalStat = fsPromises.stat;
+    let activeStats = 0;
+    let peakStats = 0;
+    fsPromises.stat = (async (...args: Parameters<typeof fsPromises.stat>) => {
+      activeStats += 1;
+      peakStats = Math.max(peakStats, activeStats);
+      await setImmediate();
+      try {
+        return await originalStat(...args);
+      } finally {
+        activeStats -= 1;
+      }
+    }) as typeof fsPromises.stat;
+    syncBuiltinESMExports();
+
+    try {
+      await getRecentSessions();
+      assert.ok(peakStats > 1, `expected overlapping metadata reads, observed ${peakStats}`);
+      assert.ok(peakStats <= 16, `expected bounded metadata reads, observed ${peakStats}`);
+    } finally {
+      fsPromises.stat = originalStat;
+      syncBuiltinESMExports();
+    }
+  });
+});
+
+test("getRecentSessions settles metadata reads before rejecting an abort", async () => {
+  await withTemporaryHome(async (home) => {
+    const root = join(home, ".pi", "agent", "sessions");
+    mkdirSync(root, { recursive: true });
+    for (let i = 0; i < 4; i++) {
+      writeFileSync(join(root, `${i}.jsonl`), JSON.stringify({ type: "session_info", name: `Session ${i}` }) + "\n");
+    }
+
+    const controller = new AbortController();
+    const originalStat = fsPromises.stat;
+    let releaseStat!: () => void;
+    const blockedStat = new Promise<void>((resolve) => { releaseStat = resolve; });
+    let signalStatStarted!: () => void;
+    const statStarted = new Promise<void>((resolve) => { signalStatStarted = resolve; });
+    let firstStat = true;
+    fsPromises.stat = (async (...args: Parameters<typeof fsPromises.stat>) => {
+      if (firstStat) {
+        firstStat = false;
+        controller.abort();
+        signalStatStarted();
+        await blockedStat;
+      }
+      return originalStat(...args);
+    }) as typeof fsPromises.stat;
+    syncBuiltinESMExports();
+
+    const result = getRecentSessions(3, controller.signal);
+    const rejection = assert.rejects(result, { name: "AbortError" });
+    let settled = false;
+    void rejection.then(() => { settled = true; }, () => { settled = true; });
+    try {
+      await statStarted;
+      await setImmediate();
+      assert.equal(settled, false, "abort rejected before in-flight metadata settled");
+    } finally {
+      releaseStat();
+      await rejection;
+      fsPromises.stat = originalStat;
+      syncBuiltinESMExports();
+    }
+  });
+});
+
 test("getRecentSessions rejects pre-aborted and in-flight discovery without partial results", async () => {
   await withTemporaryHome(async (home) => {
     const root = join(home, ".pi", "agent", "sessions");
@@ -445,7 +522,6 @@ async function welcomeHarness(t: test.TestContext, home: string, quietStartup: b
     get view() { return view; },
     get installations() { return installations; },
     type: (text: string) => editor.handleInput(text),
-    replaceHeader: () => ctx.ui.setHeader(() => ({ render: () => ["competing header"] })),
     event: async (name: string, reason?: string) => { await handlers.get(name)?.({ reason }, ctx); },
     runStartupWork: () => {
       const callbacks = [...timeouts.values()];
@@ -454,65 +530,6 @@ async function welcomeHarness(t: test.TestContext, home: string, quietStartup: b
     },
   };
 }
-
-test("pending welcome discovery is cancelled by typing, replacement, or nonblocking shutdown", async (t) => {
-  for (const quiet of [true, false]) {
-    for (const action of ["typing", "replacement", "shutdown"] as const) {
-      await t.test(`${quiet ? "quiet" : "normal"}: ${action}`, async (t) => {
-        await withTemporaryHome(async (home) => {
-          const harness = await welcomeHarness(t, home, quiet);
-          const entered = Promise.withResolvers<void>();
-          const release = Promise.withResolvers<void>();
-          const realpath = fsPromises.realpath;
-          t.mock.method(fsPromises, "realpath", async (path: string) => {
-            if (path === join(home, ".pi", "agent", "sessions")) {
-              entered.resolve();
-              await release.promise;
-            }
-            return realpath(path);
-          });
-          let abortCalls = 0;
-          const abort = AbortController.prototype.abort;
-          t.mock.method(AbortController.prototype, "abort", function (this: AbortController, reason?: unknown) {
-            abortCalls++;
-            return abort.call(this, reason);
-          });
-          syncBuiltinESMExports();
-          let operation: Promise<unknown> | undefined;
-          try {
-            await harness.event("session_start", "startup");
-            operation = harness.runStartupWork();
-            await entered.promise;
-            if (action === "typing") {
-              harness.type("x");
-              harness.type("\x7f"); // Empty again: cancellation, not draft text, must prevent resurrection.
-              assert.equal(harness.ctx.ui.getEditorText(), "");
-            } else if (action === "replacement") {
-              harness.replaceHeader();
-            } else {
-              // Shutdown must finish even while the filesystem operation remains blocked.
-              await harness.event("session_shutdown");
-            }
-            assert.equal(abortCalls, 1);
-            release.resolve();
-            await operation;
-            assert.equal(harness.installations, action === "replacement" ? 2 : 1);
-            assert.equal(Boolean(harness.view), action !== "shutdown");
-            if (action === "replacement") {
-              assert.deepEqual(harness.view?.render(96), ["competing header"]);
-            }
-          } finally {
-            release.resolve();
-            await operation;
-            await harness.event("session_shutdown");
-            t.mock.restoreAll();
-            syncBuiltinESMExports();
-          }
-        });
-      });
-    }
-  }
-});
 
 test("eligible welcome installs and persists without losing input", async (t) => {
   for (const quiet of [true, false]) {

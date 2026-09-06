@@ -23,7 +23,7 @@ import { resolveThinkingLevelSelection } from "./thinking-level.ts";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch, subscribeGitUpdates } from "./git-status.ts";
 import { SessionBranchCache, SessionTokenStatsCache } from "./token-stats.ts";
 import { ansi, getFgAnsiCode } from "./colors.ts";
-import { WelcomeHeader, countStartupTokens, getRecentSessions, loadedCountsFromRuntime, type LoadedCounts, type WelcomeHeaderOptions, type WelcomeResourceLoader } from "./welcome.ts";
+import { WelcomeHeader, countStartupTokens, getRecentSessions, loadedCountsFromRuntime, readRecentSessionsCache, writeRecentSessionsCache, type LoadedCounts, type WelcomeHeaderOptions, type WelcomeResourceLoader } from "./welcome.ts";
 import { createRenderScheduler } from "./render-scheduler.ts";
 import { refreshMaxThinkingWave } from "./thinking-wave.ts";
 import { getEditorAutocompleteProvider, passAutocompleteProviderThroughPreviousEditor } from "./editor-composition.ts";
@@ -1411,6 +1411,16 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   const editorPerf = new EditorPerfProfiler(readEditorPerfOptions());
   const startupSettings = readSettings();
   config = parsePowerlineConfig(startupSettings.powerline, PRESET_NAMES);
+  let startupWelcomeSessions = config.welcome ? readRecentSessionsCache(3) : [];
+  if (config.welcome) {
+    void getRecentSessions(3).then(
+      (sessions) => {
+        startupWelcomeSessions = sessions;
+        void writeRecentSessionsCache(sessions);
+      },
+      (error: unknown) => { console.debug("[powerline-footer] Recent session lookup failed:", error); },
+    );
+  }
   installPowerlineWidgetSpacingPatch();
   installPowerlineFooterLayoutPatch();
   installPowerlineFooterLifecyclePatch();
@@ -1433,8 +1443,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   let restoreFooterStatusRepaintHook: (() => void) | null = null;
   let shortcutInputUnsubscribe: (() => void) | null = null;
   let welcomePlacement: "loadedResources" | null = null;
-  let welcomeRequest: AbortController | null = null;
-  let welcomeTimer: ReturnType<typeof setTimeout> | null = null;
   let lastUserPrompt = "";
   let showLastPrompt = true;
   let lastPromptRenderCache: {
@@ -2081,7 +2089,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
   // Generate themed working message before agent starts (has access to user's prompt)
   pi.on("before_agent_start", async (event, ctx) => {
-    cancelPendingWelcome();
     finishPendingQueueDelivery(event.prompt, ctx);
     lastUserPrompt = event.prompt;
     if (ctx.hasUI) {
@@ -2212,15 +2219,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     return undefined;
   }
 
-  function cancelPendingWelcome(): void {
-    welcomeRequest?.abort();
-    welcomeRequest = null;
-    if (welcomeTimer) clearTimeout(welcomeTimer);
-    welcomeTimer = null;
-  }
-
   function dismissWelcome(ctx: any) {
-    cancelPendingWelcome();
     const activePlacement = welcomePlacement;
     welcomePlacement = null;
     if (activePlacement === "loadedResources") {
@@ -2941,7 +2940,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         if (!enabled || !ctx.hasUI || tuiRef?.hasOverlay?.()) {
           return undefined;
         }
-        cancelPendingWelcome();
         const powerlineShortcutAction = getPowerlineShortcutAction(data);
         if (!powerlineShortcutAction) {
           return undefined;
@@ -3018,7 +3016,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         : baseHandleInput;
       const handlePowerlineEditorInput = (data: string) => {
         lastEditorInputAt = Date.now();
-        cancelPendingWelcome();
         const isSubmit = keybindings.matches(data, "tui.input.submit") && !keybindings.matches(data, "tui.input.newLine");
         const isFollowUpSubmit = keybindings.matches(data, "app.message.followUp");
         if (!powerlineCompacting && isSubmit && typeof ctx.compact === "function") {
@@ -3209,15 +3206,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     installPowerlineWidgets(ctx);
   }
 
-  function beginWelcomeRequest(ctx: any): AbortController {
-    dismissWelcome(ctx);
-    welcomeRequest = new AbortController();
-    return welcomeRequest;
-  }
-
-  function canShowWelcome(ctx: any, request: AbortController, generation: number): boolean {
-    if (request !== welcomeRequest || request.signal.aborted || generation !== sessionGeneration
-      || !enabled || !config.welcome || !ctx.hasUI || isStreaming
+  function canShowWelcome(ctx: any, generation: number): boolean {
+    if (generation !== sessionGeneration || !enabled || !config.welcome || !ctx.hasUI || isStreaming
       || ctx.ui.getEditorText()) return false;
     const sessionEvents = ctx.sessionManager?.getBranch?.() ?? [];
     return !sessionEvents.some((entry: unknown) => {
@@ -3250,10 +3240,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   }
 
   function setupWelcomeResourcesBanner(ctx: any, forceResources: boolean): void {
-    const request = beginWelcomeRequest(ctx);
+    dismissWelcome(ctx);
     const generation = sessionGeneration;
-    let recentSessions: Awaited<ReturnType<typeof getRecentSessions>> = [];
+    if (!canShowWelcome(ctx, generation)) return;
     let banner: WelcomeHeader | undefined;
+    const recentSessions = startupWelcomeSessions;
 
     ctx.ui.setHeader(markPowerlineWelcomeHeaderFactory(
       (loadedCounts = { contextFiles: 0, extensions: 0, skills: 0, promptTemplates: 0 }) => {
@@ -3261,7 +3252,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         return banner;
       },
       () => {
-        if (welcomeRequest === request) cancelPendingWelcome();
         if (welcomePlacement === "loadedResources") welcomePlacement = null;
       },
       forceResources,
@@ -3273,22 +3263,5 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       },
     ));
     welcomePlacement = "loadedResources";
-
-    // Refresh optional session metadata without delaying the startup banner.
-    welcomeTimer = setTimeout(async () => {
-      welcomeTimer = null;
-      try {
-        if (!canShowWelcome(ctx, request, generation)) return;
-        recentSessions = await getRecentSessions(3, request.signal);
-        if (!canShowWelcome(ctx, request, generation)) return;
-        banner?.setRecentSessions(recentSessions);
-      } catch (error: unknown) {
-        if (!request.signal.aborted || error !== request.signal.reason) {
-          console.debug("[powerline-footer] Welcome banner failed:", error);
-        }
-      } finally {
-        if (welcomeRequest === request) welcomeRequest = null;
-      }
-    }, 0);
   }
 }

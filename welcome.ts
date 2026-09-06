@@ -1,5 +1,5 @@
 import { readFileSync, realpathSync } from "node:fs";
-import { open, opendir, realpath, stat } from "node:fs/promises";
+import { mkdir, open, opendir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { VERSION as PACKAGE_VERSION, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
@@ -66,6 +66,42 @@ const INTRO_SHINE_TRAVERSALS = 1;
 const TRUE_COLOR = process.env.COLORTERM === "truecolor" || process.env.COLORTERM === "24bit";
 const SESSION_TAIL_READ_BYTES = 64 * 1024;
 const ANONYMOUS_SESSION_NAME = "Anonymous";
+const RECENT_SESSIONS_CACHE_VERSION = 1;
+const RECENT_SESSIONS_CACHE_DIR = getAgentPath("cache", "pi-powerline-footer");
+const RECENT_SESSIONS_CACHE_PATH = join(RECENT_SESSIONS_CACHE_DIR, "recent-sessions.json");
+
+export function readRecentSessionsCache(limit = 3): RecentSession[] {
+  try {
+    const value = JSON.parse(readFileSync(RECENT_SESSIONS_CACHE_PATH, "utf8")) as {
+      version?: unknown;
+      sessions?: unknown;
+    };
+    if (value.version !== RECENT_SESSIONS_CACHE_VERSION || !Array.isArray(value.sessions)) return [];
+    return value.sessions
+      .filter((session): session is RecentSession => (
+        typeof session === "object" && session !== null
+        && typeof Reflect.get(session, "name") === "string"
+        && typeof Reflect.get(session, "timeAgo") === "string"
+      ))
+      .slice(0, Math.max(0, limit));
+  } catch {
+    return [];
+  }
+}
+
+export async function writeRecentSessionsCache(sessions: readonly RecentSession[]): Promise<void> {
+  const tempPath = `${RECENT_SESSIONS_CACHE_PATH}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await mkdir(RECENT_SESSIONS_CACHE_DIR, { recursive: true });
+    await writeFile(tempPath, `${JSON.stringify({
+      version: RECENT_SESSIONS_CACHE_VERSION,
+      sessions,
+    })}\n`, "utf8");
+    await rename(tempPath, RECENT_SESSIONS_CACHE_PATH);
+  } catch {
+    await rm(tempPath, { force: true }).catch(() => {});
+  }
+}
 
 /** Prefer the running Pi CLI's VERSION over this extension's development dependency. */
 function getRuntimeVersion(): string {
@@ -444,11 +480,6 @@ export class WelcomeHeader implements Component {
     }, INTRO_TICK_MS);
   }
 
-  setRecentSessions(recentSessions: RecentSession[]): void {
-    this.data.recentSessions = recentSessions;
-    this.requestRender?.();
-  }
-
   setLoadedResources(loadedCounts: LoadedCounts, startupTokens: number | null): void {
     this.data.loadedCounts = loadedCounts;
     this.data.startupTokens = startupTokens;
@@ -599,47 +630,94 @@ async function readLatestSessionName(
   return ANONYMOUS_SESSION_NAME;
 }
 
+const SESSION_DIRECTORY_CONCURRENCY = 8;
+const SESSION_METADATA_CONCURRENCY = 16;
+
+function createAsyncLimiter(maxConcurrency: number) {
+  let activeCount = 0;
+  const waiters: Array<() => void> = [];
+
+  return async function run<T>(operation: () => Promise<T>): Promise<T> {
+    if (activeCount >= maxConcurrency) {
+      await new Promise<void>((resolve) => waiters.push(resolve));
+    }
+    activeCount += 1;
+    try {
+      return await operation();
+    } finally {
+      activeCount -= 1;
+      waiters.shift()?.();
+    }
+  };
+}
+
 /**
  * Collect metadata asynchronously, then read session names newest-first.
- * I/O is serial: at most one directory handle and one filesystem operation are
- * active at a time. Abort rejects after the current operation and closes handles.
+ * Directory and metadata reads use separate bounds so large archives stay
+ * responsive without opening an unbounded number of handles.
  */
 export async function getRecentSessions(maxCount: number = 3, signal?: AbortSignal): Promise<RecentSession[]> {
   signal?.throwIfAborted();
   if (maxCount <= 0) return [];
-  const pendingDirs = [...new Set([getAgentPath("sessions"), getLegacyPiPath("sessions")])]
-    .reverse().map(dir => ({ dir, ancestors: [] as string[] }));
+  const pendingDirs = [...new Set([getAgentPath("sessions"), getLegacyPiPath("sessions")])];
+  const visitedDirs = new Set<string>();
   const sessions: { filePath: string; size: number; mtime: number }[] = [];
+  const inspectMetadata = createAsyncLimiter(SESSION_METADATA_CONCURRENCY);
 
-  while (pendingDirs.length > 0) {
-    signal?.throwIfAborted();
-    const { dir, ancestors } = pendingDirs.pop()!;
+  async function scanDirectory(dir: string): Promise<string[]> {
+    const discoveredDirs: string[] = [];
+    const inspections: Promise<void>[] = [];
     try {
       const canonicalDir = await realpath(dir);
       signal?.throwIfAborted();
-      if (ancestors.includes(canonicalDir)) continue;
-      const childAncestors = [...ancestors, canonicalDir];
+      if (visitedDirs.has(canonicalDir)) return discoveredDirs;
+      visitedDirs.add(canonicalDir);
+
       const entries = await opendir(dir);
       // The async iterator closes the directory on completion, error, or abort.
       for await (const entry of entries) {
         signal?.throwIfAborted();
         const entryPath = join(dir, entry.name);
-        try {
-          const stats = await stat(entryPath);
-          signal?.throwIfAborted();
-          if (stats.isDirectory()) {
-            pendingDirs.push({ dir: entryPath, ancestors: childAncestors });
-          } else if (stats.isFile() && entry.name.endsWith(".jsonl")) {
-            sessions.push({ filePath: entryPath, size: stats.size, mtime: stats.mtimeMs });
-          }
-        } catch (error) {
-          signal?.throwIfAborted();
-          logDiscoveryError(`Failed to inspect session entry ${entryPath}`, error);
+        if (entry.isDirectory()) {
+          discoveredDirs.push(entryPath);
+          continue;
         }
+        if (entry.isFile() && !entry.name.endsWith(".jsonl")) continue;
+
+        inspections.push(inspectMetadata(async () => {
+          signal?.throwIfAborted();
+          try {
+            const stats = await stat(entryPath);
+            signal?.throwIfAborted();
+            if (stats.isDirectory()) {
+              discoveredDirs.push(entryPath);
+            } else if (stats.isFile() && entry.name.endsWith(".jsonl")) {
+              sessions.push({ filePath: entryPath, size: stats.size, mtime: stats.mtimeMs });
+            }
+          } catch (error) {
+            signal?.throwIfAborted();
+            logDiscoveryError(`Failed to inspect session entry ${entryPath}`, error);
+          }
+        }));
       }
     } catch (error) {
+      await Promise.allSettled(inspections);
       signal?.throwIfAborted();
       logDiscoveryError(`Failed to scan sessions dir ${dir}`, error);
+      return discoveredDirs;
+    }
+    await Promise.allSettled(inspections);
+    signal?.throwIfAborted();
+    return discoveredDirs;
+  }
+
+  while (pendingDirs.length > 0) {
+    signal?.throwIfAborted();
+    const batch = pendingDirs.splice(0, SESSION_DIRECTORY_CONCURRENCY);
+    const results = await Promise.allSettled(batch.map(scanDirectory));
+    signal?.throwIfAborted();
+    for (const result of results) {
+      if (result.status === "fulfilled") pendingDirs.push(...result.value);
     }
   }
 
