@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
-- **Welcome startup** — Show the welcome banner without waiting for session discovery, then refresh session names, loaded-resource counts, and startup tokens in place. Cancel pending discovery when another extension replaces the header. Thanks to [@krikchaip](https://github.com/krikchaip) for the report and review.
+- **Welcome startup** — Render the complete banner with the footer without waiting for recent-session discovery. Show a small cached recent-session snapshot in the first frame, refresh it with a nonblocking bounded lookup for the next load, and do not redraw the current banner when discovery finishes. Thanks to [@krikchaip](https://github.com/krikchaip) for the report and review.
 
 ## [0.17.0] - 2026-09-04
 
