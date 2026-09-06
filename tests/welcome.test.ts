@@ -235,7 +235,30 @@ test("getRecentSessions uses the latest session name instead of its path", async
       "",
     ].join("\n"));
 
-    assert.equal((await getRecentSessions(1))[0]?.name, "Powerline metrics audit");
+    assert.equal((await getRecentSessions("/Users/nico/Desktop/private-project", 1))[0]?.name, "Powerline metrics audit");
+  });
+});
+
+test("getRecentSessions returns only sessions from the exact workspace", async () => {
+  await withTemporaryHome(async (home) => {
+    const sessionsDir = join(home, ".pi", "agent", "sessions");
+    const workspace = join(home, "work", "project");
+    const otherWorkspace = join(home, "work", "other");
+    mkdirSync(sessionsDir, { recursive: true });
+    const writeSession = (file: string, cwd: string, name: string) => {
+      writeFileSync(join(sessionsDir, file), [
+        JSON.stringify({ type: "session", cwd }),
+        JSON.stringify({ type: "session_info", name }),
+        "",
+      ].join("\n"));
+    };
+    writeSession("current.jsonl", workspace, "Current workspace");
+    writeSession("subdirectory.jsonl", join(workspace, "nested"), "Nested workspace");
+    writeSession("other.jsonl", otherWorkspace, "Other workspace");
+
+    assert.deepEqual(await getRecentSessions(workspace, 3), [
+      { name: "Current workspace", timeAgo: "just now" },
+    ]);
   });
 });
 
@@ -267,7 +290,7 @@ test("getRecentSessions labels sessions without an active name as anonymous", as
       "",
     ].join("\n"));
 
-    assert.equal((await getRecentSessions(1))[0]?.name, "Anonymous");
+    assert.equal((await getRecentSessions("/Users/nico/Desktop/private-project", 1))[0]?.name, "Anonymous");
   });
 });
 
@@ -299,9 +322,12 @@ test("getRecentSessions reads custom agent sessions and existing legacy sessions
         "",
       ].join("\n"));
 
-      const names = (await getRecentSessions(10)).map((session) => session.name);
-      assert.ok(names.includes("Custom agent session"));
-      assert.ok(names.includes("Legacy session"));
+      assert.deepEqual(await getRecentSessions("/tmp/custom-project", 10), [
+        { name: "Custom agent session", timeAgo: "just now" },
+      ]);
+      assert.deepEqual(await getRecentSessions("/tmp/legacy-project", 10), [
+        { name: "Legacy session", timeAgo: "just now" },
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -312,11 +338,13 @@ test("getRecentSessions selects newest distinct names across a large nested arch
   await withTemporaryHome(async (home) => {
     const root = join(home, ".pi", "agent", "sessions");
     const nested = join(root, "--encoded--", "artifacts", "nested");
+    const workspace = join(home, "workspace");
+    const sessionHeader = JSON.stringify({ type: "session", cwd: workspace });
     mkdirSync(nested, { recursive: true });
     const now = Date.now();
     for (let i = 0; i < 1000; i++) {
       const file = join(nested, `${i}.jsonl`);
-      writeFileSync(file, JSON.stringify({ type: "session_info", name: "Older session" }) + "\n");
+      writeFileSync(file, `${sessionHeader}\n${JSON.stringify({ type: "session_info", name: "Older session" })}\n`);
       utimesSync(file, (now - 86_400_000) / 1000, (now - 86_400_000) / 1000);
     }
     const recent = [
@@ -327,11 +355,11 @@ test("getRecentSessions selects newest distinct names across a large nested arch
     ] as const;
     for (const [name, header, age] of recent) {
       const file = join(nested, name);
-      writeFileSync(file, header + "\n" + "ignored body".repeat(1000));
+      writeFileSync(file, `${sessionHeader}\n${header}\n${"ignored body".repeat(1000)}`);
       utimesSync(file, (now - age) / 1000, (now - age) / 1000);
     }
 
-    assert.deepEqual(await getRecentSessions(), [
+    assert.deepEqual(await getRecentSessions(workspace), [
       { name: "Metrics audit", timeAgo: "1m ago" },
       { name: "Anonymous", timeAgo: "3m ago" },
       { name: "Third session", timeAgo: "4m ago" },
@@ -344,7 +372,11 @@ test("getRecentSessions overlaps bounded metadata reads for responsive startup",
     const root = join(home, ".pi", "agent", "sessions");
     mkdirSync(root, { recursive: true });
     for (let i = 0; i < 24; i++) {
-      writeFileSync(join(root, `${i}.jsonl`), JSON.stringify({ type: "session_info", name: `Session ${i}` }) + "\n");
+      writeFileSync(join(root, `${i}.jsonl`), [
+        JSON.stringify({ type: "session", cwd: home }),
+        JSON.stringify({ type: "session_info", name: `Session ${i}` }),
+        "",
+      ].join("\n"));
     }
 
     const originalStat = fsPromises.stat;
@@ -363,7 +395,7 @@ test("getRecentSessions overlaps bounded metadata reads for responsive startup",
     syncBuiltinESMExports();
 
     try {
-      await getRecentSessions();
+      await getRecentSessions(home);
       assert.ok(peakStats > 1, `expected overlapping metadata reads, observed ${peakStats}`);
       assert.ok(peakStats <= 16, `expected bounded metadata reads, observed ${peakStats}`);
     } finally {
@@ -399,7 +431,7 @@ test("getRecentSessions settles metadata reads before rejecting an abort", async
     }) as typeof fsPromises.stat;
     syncBuiltinESMExports();
 
-    const result = getRecentSessions(3, controller.signal);
+    const result = getRecentSessions(home, 3, controller.signal);
     const rejection = assert.rejects(result, { name: "AbortError" });
     let settled = false;
     void rejection.then(() => { settled = true; }, () => { settled = true; });
@@ -425,17 +457,17 @@ test("getRecentSessions rejects pre-aborted and in-flight discovery without part
     }
     const controller = new AbortController();
     controller.abort();
-    await assert.rejects(getRecentSessions(3, controller.signal), { name: "AbortError" });
+    await assert.rejects(getRecentSessions(home, 3, controller.signal), { name: "AbortError" });
 
     const running = new AbortController();
-    const result = getRecentSessions(3, running.signal);
+    const result = getRecentSessions(home, 3, running.signal);
     const rejected = assert.rejects(result, { name: "AbortError" });
     await setImmediate();
     running.abort();
     await rejected;
     // Cleanup immediately after completion also exercises closed handles on Windows.
     rmSync(root, { recursive: true });
-    assert.deepEqual(await getRecentSessions(), []);
+    assert.deepEqual(await getRecentSessions(home), []);
   });
 });
 
@@ -445,10 +477,14 @@ test("getRecentSessions follows nested directory links without looping", async (
     const archive = join(home, "archive");
     mkdirSync(root, { recursive: true });
     mkdirSync(archive);
-    writeFileSync(join(archive, "session.jsonl"), JSON.stringify({ type: "session_info", name: "Linked session" }) + "\n");
+    writeFileSync(join(archive, "session.jsonl"), [
+      JSON.stringify({ type: "session", cwd: home }),
+      JSON.stringify({ type: "session_info", name: "Linked session" }),
+      "",
+    ].join("\n"));
     symlinkSync(archive, join(root, "linked"), process.platform === "win32" ? "junction" : "dir");
     symlinkSync(root, join(archive, "cycle"), process.platform === "win32" ? "junction" : "dir");
-    assert.deepEqual(await getRecentSessions(), [{ name: "Linked session", timeAgo: "just now" }]);
+    assert.deepEqual(await getRecentSessions(home), [{ name: "Linked session", timeAgo: "just now" }]);
   });
 });
 

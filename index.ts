@@ -1411,12 +1411,13 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   const editorPerf = new EditorPerfProfiler(readEditorPerfOptions());
   const startupSettings = readSettings();
   config = parsePowerlineConfig(startupSettings.powerline, PRESET_NAMES);
-  let startupWelcomeSessions = config.welcome ? readRecentSessionsCache(3) : [];
+  const startupWorkspace = process.cwd();
+  let startupWelcomeSessions = config.welcome ? readRecentSessionsCache(startupWorkspace, 3) : [];
   if (config.welcome) {
-    void getRecentSessions(3).then(
+    void getRecentSessions(startupWorkspace, 3).then(
       (sessions) => {
         startupWelcomeSessions = sessions;
-        void writeRecentSessionsCache(sessions);
+        void writeRecentSessionsCache(startupWorkspace, sessions);
       },
       (error: unknown) => { console.debug("[powerline-footer] Recent session lookup failed:", error); },
     );
