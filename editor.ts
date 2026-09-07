@@ -77,6 +77,7 @@ export class PowerlineEditor extends CustomEditor {
   private readonly optionsRef: PowerlineEditorOptions;
   private wrappedProviderInstalled = false;
   private promptHistoryDraft: string | null = null;
+  private mouseContentOffset = 2;
 
   constructor(tui: any, theme: any, keybindings: KeybindingsManager, options: PowerlineEditorOptions) {
     super(tui, theme, keybindings);
@@ -96,6 +97,24 @@ export class PowerlineEditor extends CustomEditor {
 
   hasWrappedProvider(): boolean {
     return this.wrappedProviderInstalled;
+  }
+
+  handleMouse(event: any): any {
+    const inheritedHandleMouse = Reflect.get(
+      Object.getPrototypeOf(PowerlineEditor.prototype),
+      "handleMouse",
+    );
+    if (typeof inheritedHandleMouse !== "function") return undefined;
+
+    const renderedVisibleLineCount = Reflect.get(this, "renderedVisibleLineCount");
+    const isEditorContent = Number.isInteger(renderedVisibleLineCount)
+      && event.y > 0
+      && event.y <= renderedVisibleLineCount;
+    const adjustedEvent = isEditorContent
+      ? { ...event, x: Math.max(0, event.x - this.mouseContentOffset) }
+      : event;
+
+    return inheritedHandleMouse.call(this, adjustedEvent);
   }
 
   handleInput(data: string): void {

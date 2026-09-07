@@ -27,7 +27,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/**/*.test.ts",
-    "test:e2e": "expect tests/e2e/executable_welcome-startup.expect"
+    "test:e2e": "expect tests/e2e/executable_welcome-startup.expect",
+    "test:e2e:editor-click": "expect tests/e2e/editor-click.expect"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": ">=0.81.0",

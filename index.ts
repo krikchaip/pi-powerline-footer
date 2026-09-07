@@ -674,6 +674,8 @@ export function renderFastPowerlineEditor(
   if (viewport.lines.some((line) => !isFastRenderableText(line.text))) return null;
 
   Reflect.set(editor as object, "lastWidth", layoutWidth);
+  Reflect.set(editor as object, "renderedVisibleLineCount", viewport.lines.length);
+  Reflect.set(editor as object, "mouseContentOffset", 3);
 
   const borderColor = getFgAnsiCode("sep");
   const border = (marker: "↑" | "↓" | "─") => {
@@ -3101,11 +3103,13 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           }
 
           if (width < 10) {
+            Reflect.set(editor, "mouseContentOffset", 0);
             return editorPerf.options.enabled
               ? editorPerf.measure("editor.render.base", () => originalRender(width))
               : originalRender(width);
           }
 
+          Reflect.set(editor, "mouseContentOffset", 2);
           const bc = (s: string) => `${getFgAnsiCode("sep")}${s}${ansi.reset}`;
           const promptGlyph = ">";
           const promptColor = ansi.getFgAnsi(200, 200, 200);

@@ -1,0 +1,151 @@
+#!/usr/bin/expect -f
+
+set timeout 1
+log_user 0
+set repo [file normalize [file join [file dirname [info script]] ../..]]
+set extension_path "$repo/index.ts"
+set fixture_path "$repo/tests/e2e/fixtures/editor-click.ts"
+set temp_root [file normalize "/tmp/pi-powerline-click-e2e-[pid]"]
+set work_dir "$temp_root/work"
+set state_dir "$temp_root/agent"
+set result_path "$temp_root/result.txt"
+set log_path "$temp_root/run.ansi"
+set columns 80
+set rows 24
+set active_spawn ""
+
+proc read_binary {path} {
+  set channel [open $path r]
+  fconfigure $channel -translation binary -encoding binary
+  set content [read $channel]
+  close $channel
+  return $content
+}
+
+proc readable {text} {
+  return [string map [list "\x1b" "<ESC>" "\x07" "<BEL>"] $text]
+}
+
+proc cleanup {} {
+  global active_spawn temp_root
+  if {$active_spawn ne ""} {
+    catch {send -i $active_spawn "\003\003"}
+    after 100
+    catch {close -i $active_spawn}
+    catch {wait -i $active_spawn}
+    set active_spawn ""
+  }
+  catch {log_file}
+  catch {file delete -force $temp_root}
+}
+
+proc failure {message {content ""}} {
+  puts stderr "FAIL: $message"
+  if {$content ne ""} {
+    set start [expr {max(0, [string length $content] - 5000)}]
+    puts stderr [readable [string range $content $start end]]
+  }
+  cleanup
+  exit 1
+}
+
+proc drain_until {milliseconds pattern} {
+  global active_spawn
+  set deadline [expr {[clock milliseconds] + $milliseconds}]
+  while {[clock milliseconds] < $deadline} {
+    expect -i $active_spawn -timeout 0 \
+      "\033\[c" { send -i $active_spawn -- "\033\[?1;2c" } \
+      "\033\[?u" { send -i $active_spawn -- "\033\[?0u" } \
+      "Trust project folder?" { failure "unexpected project trust prompt" } \
+      -re $pattern { return 1 } \
+      timeout {} \
+      eof { return 0 }
+    after 10
+  }
+  return 0
+}
+
+proc wait_until_quiet {milliseconds quiet_milliseconds} {
+  global active_spawn
+  set deadline [expr {[clock milliseconds] + $milliseconds}]
+  set quiet_since [clock milliseconds]
+  while {[clock milliseconds] < $deadline} {
+    expect -i $active_spawn -timeout 0 \
+      "\033\[c" {
+        send -i $active_spawn -- "\033\[?1;2c"
+        set quiet_since [clock milliseconds]
+      } \
+      "\033\[?u" {
+        send -i $active_spawn -- "\033\[?0u"
+        set quiet_since [clock milliseconds]
+      } \
+      -re {.+} { set quiet_since [clock milliseconds] } \
+      timeout {} \
+      eof { return 0 }
+    if {[clock milliseconds] - $quiet_since >= $quiet_milliseconds} {
+      return 1
+    }
+    after 10
+  }
+  return 0
+}
+
+file mkdir $work_dir
+file mkdir $state_dir
+set settings [open "$state_dir/settings.json" w]
+puts $settings {{"quietStartup":true,"tuiMode":"fullscreen","fullscreenExitOutput":"resume-hint","powerline":{"welcome":false,"preset":"ascii","placement":"above","showLastPrompt":false}}}
+close $settings
+
+cd $work_dir
+log_file -a -noappend $log_path
+spawn env HOME=$temp_root PI_CODING_AGENT_DIR=$state_dir PI_OFFLINE=1 CLICK_RESULT_PATH=$result_path \
+  TERM=xterm-256color COLORTERM=truecolor COLUMNS=$columns LINES=$rows \
+  pi --tui-mode fullscreen --no-session --no-context-files --no-prompt-templates --no-themes \
+  --no-extensions --no-skills --no-tools -e $extension_path -e $fixture_path
+set active_spawn $spawn_id
+stty columns $columns rows $rows
+
+if {![drain_until 10000 {dir ~/work}]} {
+  failure "Pi TUI did not become ready" [read_binary $log_path]
+}
+
+send -i $active_spawn -- "abcdefghij"
+if {![drain_until 3000 {abcdefghij}]} {
+  failure "editor did not render fixture text" [read_binary $log_path]
+}
+
+# Wait for synchronized rendering to place the terminal cursor after the text.
+set editor_row [expr {$rows - 1}]
+set settled_pattern [format {\x1b\[%d;13H\x1b\[\?25l\x1b\[\?2026l} $editor_row]
+if {![drain_until 3000 $settled_pattern]} {
+  failure "editor render did not settle before the click" [read_binary $log_path]
+}
+after 750
+if {![wait_until_quiet 3000 250]} {
+  failure "editor did not become quiet before the click" [read_binary $log_path]
+}
+
+# Powerline renders the prompt on the penultimate row. The c cell is column 5.
+send -i $active_spawn -- "\033\[<0;5;${editor_row}M"
+after 50
+send -i $active_spawn -- "\033\[<0;5;${editor_row}m"
+after 250
+send -i $active_spawn -- "X"
+if {![drain_until 1000 {abX(\x1b\[[0-9;]*m)*c(\x1b\[[0-9;]*m)*defghij}]} {
+  failure "typed character did not render at the clicked position" [read_binary $log_path]
+}
+send -i $active_spawn -- "\r"
+after 300
+
+if {![file exists $result_path]} {
+  failure "fixture did not receive submitted editor text" [read_binary $log_path]
+}
+set actual [read_binary $result_path]
+if {$actual ne "abXcdefghij"} {
+  failure "click on c submitted '$actual'; expected 'abXcdefghij'" [read_binary $log_path]
+}
+
+set pi_version [string trim [exec pi --version]]
+puts "PASS editor click real-PTY E2E on Pi $pi_version: c receives the cursor"
+cleanup
+exit 0

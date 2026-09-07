@@ -82,6 +82,8 @@ test("fast editor render keeps Powerline chrome for large drafts", () => {
   assert.ok(rendered[0]?.includes("↑"));
   assert.ok(rendered.some((line) => line.includes(CURSOR_MARKER)));
   assert.ok(rendered.some((line) => line.includes(">")));
+  assert.equal(Reflect.get(editor, "mouseContentOffset"), 3);
+  assert.equal(Reflect.get(editor, "renderedVisibleLineCount"), rendered.length - 2);
 });
 
 test("fast editor render falls back for short drafts", () => {
