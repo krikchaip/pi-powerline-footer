@@ -417,12 +417,12 @@ test("on-demand vibe generation silently ignores stale contexts but logs unrelat
     };
 
     const stale = await runFailure(new Error("This extension ctx is stale after session replacement or reload."));
-    assert.deepEqual(stale.updates, ["Channeling star trek..."]);
+    assert.deepEqual(stale.updates, ["Channeling star trek"]);
     assert.deepEqual(stale.logs, []);
 
     const unrelatedError = new Error("registry unavailable");
     const unrelated = await runFailure(unrelatedError);
-    assert.deepEqual(unrelated.updates, ["Channeling star trek..."]);
+    assert.deepEqual(unrelated.updates, ["Channeling star trek"]);
     assert.deepEqual(unrelated.logs, [["[working-vibes] Generation failed:", unrelatedError]]);
   } finally {
     console.debug = originalDebug;

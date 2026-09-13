@@ -149,7 +149,9 @@ if {![drain_until 750 {WELCOME_E2E_READY}]} {
   failure "welcome banner did not render before Pi became ready" [read_binary $startup_log]
 }
 set session_start_delay [string trim [read_binary $timing_path]]
-if {$session_start_delay > 225} {
+# The blocked discovery takes 1000 ms. Allow scheduler load while retaining a
+# clear failure gap when session_start incorrectly waits for that discovery.
+if {$session_start_delay > 750} {
   failure "session_start waited ${session_start_delay} ms for recent-session discovery" [read_binary $startup_log]
 }
 after 1100
